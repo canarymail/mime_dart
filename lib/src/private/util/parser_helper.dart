@@ -1,7 +1,7 @@
 import '../../codecs/mail_codec.dart';
 import '../../mime_message.dart';
-import '../util/ascii_runes.dart';
-import '../util/word.dart';
+import 'ascii_runes.dart';
+import 'word.dart';
 
 /// Abstracts a word such as a template name
 class ParserHelper {
@@ -234,3 +234,4 @@ class HeaderParseResult {
     headersList.add(header);
   }
 }
+

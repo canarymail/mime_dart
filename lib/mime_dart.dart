@@ -4,10 +4,8 @@
 ///
 /// Use `MimeMessage` to parse existing MIME messages.
 /// Use `MessageBuilder` to create new MIME messages.
-///
-/// Note: This library has been renamed to `mime_dart`.
-/// Please use `import 'package:mime_dart/mime_dart.dart';` instead.
-@Deprecated('Use mime_dart.dart instead')
-library enough_mail;
+library mime_dart;
 
-export 'mime_dart.dart';
+export 'codecs.dart';
+export 'mime.dart';
+export 'src/exception.dart';

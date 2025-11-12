@@ -5,7 +5,7 @@ import 'package:collection/collection.dart' show IterableExtension;
 
 import 'codecs/mail_codec.dart';
 import 'mime_message.dart';
-import 'private/imap/parser_helper.dart';
+import 'private/util/parser_helper.dart';
 import 'private/util/ascii_runes.dart';
 import 'private/util/byte_utils.dart';
 

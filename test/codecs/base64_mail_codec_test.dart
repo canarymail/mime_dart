@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:enough_mail/src/codecs/mail_codec.dart';
+import 'package:mime_dart/src/codecs/mail_codec.dart';
 import 'package:test/test.dart';
 // cSpell:disable
 

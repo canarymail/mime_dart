@@ -1,12 +1,12 @@
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:enough_mail/src/mail_address.dart';
-import 'package:enough_mail/src/mail_conventions.dart';
-import 'package:enough_mail/src/media_type.dart';
-import 'package:enough_mail/src/message_builder.dart';
-import 'package:enough_mail/src/mime_data.dart';
-import 'package:enough_mail/src/mime_message.dart';
+import 'package:mime_dart/src/mail_address.dart';
+import 'package:mime_dart/src/mail_conventions.dart';
+import 'package:mime_dart/src/media_type.dart';
+import 'package:mime_dart/src/message_builder.dart';
+import 'package:mime_dart/src/mime_data.dart';
+import 'package:mime_dart/src/mime_message.dart';
 import 'package:test/test.dart';
 // cSpell:disable
 
@@ -1026,7 +1026,7 @@ END:VCARD\r
             ..subject = subject
             ..addTextPlain(text)
             ..addTextHtml('<p>$text</p>');
-      final file = File('test/smtp/testimage.jpg');
+      final file = File('test/assets/testimage.jpg');
       await originalBuilder.addFile(file, MediaSubtype.imageJpeg.mediaType);
       final originalMessage = originalBuilder.buildMimeMessage();
       // print('original:');
@@ -1118,7 +1118,7 @@ END:VCARD\r
       originalBuilder.addPart(mediaSubtype: MediaSubtype.multipartAlternative)
         ..addTextPlain(text)
         ..addTextHtml('<p>$text</p>');
-      final file = File('test/smtp/testimage.jpg');
+      final file = File('test/assets/testimage.jpg');
       await originalBuilder.addFile(file, MediaSubtype.imageJpeg.mediaType);
       final originalMessage = originalBuilder.buildMimeMessage();
       // print('original:');
@@ -1177,7 +1177,7 @@ END:VCARD\r
         ]
         ..addTextPlain('Hello world!');
 
-      final file = File('test/smtp/testimage.jpg');
+      final file = File('test/assets/testimage.jpg');
       await builder.addFile(file, MediaSubtype.imageJpeg.mediaType);
       final message = builder.buildMimeMessage();
       final rendered = message.renderMessage();
@@ -1219,7 +1219,7 @@ END:VCARD\r
         ]
         ..addTextPlain('Hello world!');
 
-      final file = File('test/smtp/testimage-large.jpg');
+      final file = File('test/assets/testimage-large.jpg');
       await builder.addFile(file, MediaSubtype.imageJpeg.mediaType);
       final message = builder.buildMimeMessage();
       final rendered = message.renderMessage();

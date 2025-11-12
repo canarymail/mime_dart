@@ -7,15 +7,14 @@ import 'package:collection/collection.dart' show IterableExtension;
 import 'codecs/date_codec.dart';
 import 'codecs/mail_codec.dart';
 import 'exception.dart';
-import 'imap/message_sequence.dart';
 import 'mail_address.dart';
 import 'mail_conventions.dart';
 import 'media_type.dart';
 import 'message_flags.dart';
 import 'mime_data.dart';
-import 'private/imap/parser_helper.dart';
 import 'private/util/ascii_runes.dart';
 import 'private/util/mail_address_parser.dart';
+import 'private/util/parser_helper.dart';
 
 /// A MIME part
 /// In a simple case a MIME message only has one MIME part.
@@ -524,9 +523,6 @@ class MimeMessage extends MimePart {
   /// Creates a new message from the given [envelope].
   MimeMessage.fromEnvelope(
     Envelope value, {
-    this.uid,
-    this.guid,
-    this.sequenceId,
     this.flags,
   }) {
     envelope = value;
@@ -546,57 +542,6 @@ class MimeMessage extends MimePart {
     }
   }
 
-  /// The index of the message, if known
-  int? sequenceId;
-
-  /// The uid of the message, if known
-  int? uid;
-
-  /// The guid of the message.
-  ///
-  /// This field is populated automatically when using the high level API
-  /// (`MailClient`) and when the mail service delivers a [uid] for messages.
-  ///
-  /// Compare [setGuid] and [calculateGuid]
-  int? guid;
-
-  /// Generates a global unique ID to identify a message reliably and robustly.
-  ///
-  /// The generated GUID can be used as a primary key, a notification ID
-  /// and so forth.
-  ///
-  /// When using the highlevel API, the `MimeMessage.guid` field is populated
-  /// automatically.
-  ///
-  /// Compare [guid] and [setGuid]
-  static int calculateGuid({
-    required String email,
-    required String encodedMailboxName,
-    required int mailboxUidValidity,
-    required int messageUid,
-  }) =>
-      email.hashCode ^
-      encodedMailboxName.hashCode ^
-      mailboxUidValidity ^
-      messageUid;
-
-  /// Calculates and sets the [guid] of this message.
-  ///
-  /// Compare [guid] and [calculateGuid]
-  void setGuid({
-    required String email,
-    required String encodedMailboxName,
-    required int mailboxUidValidity,
-  }) {
-    final guid = calculateGuid(
-      email: email,
-      encodedMailboxName: encodedMailboxName,
-      mailboxUidValidity: mailboxUidValidity,
-      messageUid: uid ?? 0,
-    );
-    this.guid = guid;
-  }
-
   /// The modifications sequence of this message.
   ///
   /// This is only returned by servers that support the CONDSTORE capability
@@ -611,11 +556,6 @@ class MimeMessage extends MimePart {
 
   /// The size of the message in bytes
   int? size;
-
-  /// The thread sequence, this can be populated manually
-  ///
-  /// or with `MailClient.fetchThreadData`.
-  MessageSequence? threadSequence;
 
   /// Checks if this message has been read
   bool get isSeen => hasFlag(MessageFlags.seen);
@@ -1310,14 +1250,6 @@ class MimeMessage extends MimePart {
 
     return null;
   }
-
-  @override
-  int get hashCode => guid ?? super.hashCode;
-
-  @override
-  bool operator ==(Object other) => guid != null && other is MimeMessage
-      ? guid == other.guid
-      : super == other;
 }
 
 /// Encapsulates a MIME header
@@ -2113,58 +2045,4 @@ class ContentInfo {
 
   /// Is the associated message part of unknown media type?
   bool get isOther => mediaType?.top == MediaToptype.other;
-}
-
-/// Abstract a mime message thread
-///
-/// Compare `MailClient.fetchThreadedMessages` for fetching message threads.
-class MimeThread {
-  /// Creates a new thread from the given [sequence]
-  /// with the pre-fetched [messages].
-  MimeThread(this.sequence, this.messages)
-      : ids = sequence.toList(),
-        assert(
-            messages.isNotEmpty,
-            'each thread requires at least one message entry, check the '
-            'messages argument, which is empty'),
-        assert(
-            sequence.isNotEmpty,
-            'each thread requires at least one sequence entry, check the '
-            'sequence argument, which is empty');
-
-  /// The full sequence for this thread
-  final MessageSequence sequence;
-
-  /// The IDs of the message sequence
-  final List<int> ids;
-
-  /// The length of this thread
-  int get length => ids.length;
-
-  /// The fetched messages of this thread
-  final List<MimeMessage> messages;
-
-  /// The latest message in this thread
-  MimeMessage get latest => messages.last;
-
-  /// Checks if this thread contains more messages than are already fetched
-  bool get hasMoreMessages => length > messages.length;
-
-  /// Retrieves the sequence for any messages that have not yet been loaded.
-  ///
-  /// Use [hasMoreMessages] to check  if there are indeed any messages missing.
-  MessageSequence get missingMessageSequence {
-    if (length == 0) {
-      return sequence;
-    }
-    final isUid = sequence.isUidSequence;
-    final missingIds = ids
-        .where((id) => messages.any(
-              (message) => isUid ? message.uid == id : message.sequenceId == id,
-            ))
-        .toList();
-    final missing = MessageSequence.fromIds(missingIds, isUid: isUid);
-
-    return missing;
-  }
 }
