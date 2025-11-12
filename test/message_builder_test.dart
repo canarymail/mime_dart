@@ -1,6 +1,9 @@
-import 'dart:io';
 import 'dart:typed_data';
 
+// Use conditional imports to match message_builder.dart
+import 'package:mime_dart/src/io_stub.dart'
+    if (dart.library.io) 'package:mime_dart/src/io_native.dart'
+    if (dart.library.html) 'package:mime_dart/src/io_web.dart';
 import 'package:mime_dart/src/mail_address.dart';
 import 'package:mime_dart/src/mail_conventions.dart';
 import 'package:mime_dart/src/media_type.dart';

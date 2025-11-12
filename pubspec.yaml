@@ -12,6 +12,14 @@ topics:
 environment:
   sdk: '>=3.0.0 <4.0.0'
 
+platforms:
+  android:
+  ios:
+  linux:
+  macos:
+  windows:
+  web:
+
 dependencies:
   collection: ^1.19.1
   enough_convert: ^1.6.0

@@ -24,6 +24,7 @@ dependencies:
 - ✅ Email address parsing and formatting
 - ✅ Header encoding/decoding
 - ✅ Character set conversion via [enough_convert](https://pub.dev/packages/enough_convert)
+- ✅ **Web platform support** - works on all platforms including web browsers
 
 ## API Documentation
 
@@ -77,7 +78,7 @@ void main() {
 }
 ```
 
-### Building Messages with Attachments
+### Building Messages with Attachments (Native Platforms)
 
 ```dart
 import 'dart:io';
@@ -93,9 +94,40 @@ Future<void> main() async {
       htmlText: '<p>Please find the document <b>attached</b>.</p>',
     );
   
-  // Add file attachment
+  // Add file attachment (native platforms only)
   final file = File('document.pdf');
   await builder.addFile(file, MediaSubtype.applicationPdf.mediaType);
+  
+  final mimeMessage = builder.buildMimeMessage();
+  print(mimeMessage.renderMessage());
+}
+```
+
+### Building Messages with Attachments (Web-Compatible)
+
+For web platform compatibility, use `addBinaryData()` or `addBinary()` instead of `addFile()`:
+
+```dart
+import 'dart:typed_data';
+import 'package:mime_dart/mime_dart.dart';
+
+void main() {
+  final builder = MessageBuilder()
+    ..from = [MailAddress('Sender Name', 'sender@example.com')]
+    ..to = [MailAddress('Recipient Name', 'recipient@example.com')]
+    ..subject = 'Message with attachment'
+    ..addMultipartAlternative(
+      plainText: 'Please find the document attached.',
+      htmlText: '<p>Please find the document <b>attached</b>.</p>',
+    );
+  
+  // Add binary data attachment (works on all platforms including web)
+  final pdfBytes = Uint8List.fromList([...]); // your PDF data
+  builder.addBinaryData(
+    pdfBytes,
+    'document.pdf',
+    MediaSubtype.applicationPdf.mediaType,
+  );
   
   final mimeMessage = builder.buildMimeMessage();
   print(mimeMessage.renderMessage());
@@ -127,7 +159,6 @@ void main() {
 ### Handling Attachments
 
 ```dart
-import 'dart:io';
 import 'package:mime_dart/mime_dart.dart';
 
 void main() {
@@ -145,10 +176,12 @@ void main() {
       print('Size: ${attachment.size} bytes');
       print('Content-Type: ${attachment.contentType?.mediaType}');
       
-      // Save attachment to file
+      // Decode attachment data (works on all platforms)
       final data = attachment.part?.decodeContentBinary();
       if (data != null) {
-        File('downloads/${attachment.fileName}').writeAsBytesSync(data);
+        // On web: use the bytes directly (e.g., create a download link)
+        // On native: save to file using dart:io
+        print('Decoded ${data.length} bytes');
       }
     }
   }
@@ -178,6 +211,44 @@ void main() {
   
   final message = builder.buildMimeMessage();
   print(message.renderMessage());
+}
+```
+
+## Platform Support
+
+This library is designed to work on all Dart platforms:
+- ✅ **Native platforms**: Android, iOS, Linux, macOS, Windows
+- ✅ **Web platforms**: Chrome, Firefox, Safari, Edge
+
+### Platform-Specific Notes
+
+**File Operations:**
+- The `addFile()` method uses `dart:io` and is only available on native platforms
+- For web compatibility, use `addBinaryData()` or `addBinary()` methods instead
+- All MIME parsing and message building features work identically across all platforms
+
+**Example for web file uploads:**
+```dart
+import 'dart:typed_data';
+import 'package:mime_dart/mime_dart.dart';
+
+// In a web app, when user selects a file:
+void handleFileUpload(Uint8List fileBytes, String filename) {
+  final builder = MessageBuilder()
+    ..from = [MailAddress('sender@example.com')]
+    ..to = [MailAddress('recipient@example.com')]
+    ..subject = 'File upload';
+  
+  // Use addBinaryData for web compatibility
+  builder.addBinaryData(
+    fileBytes,
+    filename,
+    MediaType.guessFromFileName(filename) ?? 
+        MediaSubtype.applicationOctetStream.mediaType,
+  );
+  
+  final message = builder.buildMimeMessage();
+  // Send message via your email API
 }
 ```
 

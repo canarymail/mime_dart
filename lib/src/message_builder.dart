@@ -1,14 +1,17 @@
 // ignore_for_file: avoid_returning_this
 
 import 'dart:convert';
-import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:intl/intl.dart';
 
+// Conditional imports for platform-specific file operations
 import 'codecs/date_codec.dart';
 import 'codecs/mail_codec.dart';
+import 'io_stub.dart'
+    if (dart.library.io) 'io_native.dart'
+    if (dart.library.html) 'io_web.dart';
 import 'exception.dart';
 import 'mail_address.dart';
 import 'mail_conventions.dart';
@@ -420,6 +423,10 @@ class PartBuilder {
 
   /// Adds the [file] part asynchronously.
   ///
+  /// **Note:** This method uses `dart:io` and is **NOT available on web**.
+  /// For web-compatible attachments, use [addBinary] or [addBinaryData]
+  /// instead.
+  ///
   /// [file] The file that should be added.
   ///
   /// [mediaType] The media type of the file.
@@ -429,6 +436,12 @@ class PartBuilder {
   ///
   /// This will add an `AttachmentInfo` element to the `attachments`
   /// list of this builder.
+  ///
+  /// Example (native platforms only):
+  /// ```dart
+  /// final file = File('document.pdf');
+  /// await builder.addFile(file, MediaSubtype.applicationPdf.mediaType);
+  /// ```
   Future<PartBuilder> addFile(
     File file,
     MediaType mediaType, {
@@ -440,7 +453,8 @@ class PartBuilder {
     disposition.size ??= await file.length();
     disposition.modificationDate ??= file.lastModifiedSync();
     final child = addPart(disposition: disposition);
-    final data = await file.readAsBytes();
+    final bytes = await file.readAsBytes();
+    final data = bytes is Uint8List ? bytes : Uint8List.fromList(bytes);
     child.transferEncoding = TransferEncoding.base64;
     final info = AttachmentInfo(
       file,
@@ -472,11 +486,17 @@ class PartBuilder {
 
   /// Adds a binary [data] part with the given [mediaType].
   ///
+  /// This method is **web-compatible** and works on all platforms.
+  /// Use this method instead of [addFile] when working on web platforms.
+  ///
   /// Specify the optional content [disposition] header,
   /// if it should not be populated automatically.
   ///
   /// Optionally specify the [filename] when the [disposition] header
   /// is generated automatically.
+  ///
+  /// This will add an `AttachmentInfo` element to the `attachments`
+  /// list of this builder.
   PartBuilder addBinary(
     Uint8List data,
     MediaType mediaType, {
@@ -509,6 +529,42 @@ class PartBuilder {
 
     return child;
   }
+
+  /// Adds a binary data part with the given [mediaType].
+  ///
+  /// This is an alias for [addBinary] with a more descriptive name.
+  /// This method is **web-compatible** and works on all platforms.
+  ///
+  /// [data] The binary data to add as an attachment.
+  /// [filename] The name of the file/attachment.
+  /// [mediaType] The media type of the data.
+  ///
+  /// Optionally specify the content [disposition] header,
+  /// if it should not be populated automatically.
+  ///
+  /// Example:
+  /// ```dart
+  /// final imageBytes = Uint8List.fromList([...]); // your image data
+  /// builder.addBinaryData(
+  ///   imageBytes,
+  ///   'photo.jpg',
+  ///   MediaSubtype.imagejpeg.mediaType,
+  /// );
+  /// ```
+  PartBuilder addBinaryData(
+    Uint8List data,
+    String filename,
+    MediaType mediaType, {
+    TransferEncoding transferEncoding = TransferEncoding.base64,
+    ContentDispositionHeader? disposition,
+  }) =>
+      addBinary(
+        data,
+        mediaType,
+        transferEncoding: transferEncoding,
+        disposition: disposition,
+        filename: filename,
+      );
 
   /// Adds the message [mimeMessage] as a `message/rfc822` content.
   ///
