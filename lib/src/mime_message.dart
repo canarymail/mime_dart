@@ -1273,9 +1273,27 @@ class Header {
   @override
   String toString() => '$name: $value';
 
-  /// Renders this header into a the [buffer] wrapping it if necessary.
+  /// Headers that must NEVER be folded (per RFC).
+  static const Set<String> noFoldHeaders = {
+    'message-id',
+    'in-reply-to',
+    'references',
+  };
+
+  /// Renders this header into the [buffer] wrapping it if necessary.
   void render(StringBuffer buffer) {
     final value = this.value;
+
+    // --- FIX: Bypass folding for no-fold headers ---
+    if (value != null && noFoldHeaders.contains(lowerCaseName)) {
+      buffer
+        ..write(name)
+        ..write(': ')
+        ..write(value)
+        ..write('\r\n');
+      return;
+    }
+
     var length = name.length + ': '.length + (value?.length ?? 0);
     buffer
       ..write(name)
