@@ -1278,6 +1278,8 @@ class Header {
     'message-id',
     'in-reply-to',
     'references',
+    'canary-message-id',
+    'dove-message-id',
   };
 
   /// Renders this header into the [buffer] wrapping it if necessary.
