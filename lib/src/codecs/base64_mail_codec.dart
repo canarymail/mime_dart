@@ -119,7 +119,12 @@ class Base64MailCodec extends MailCodec {
 
   @override
   Uint8List decodeData(final String part) {
-    var cleaned = part.replaceAll('\r\n', '');
+    // Remove all whitespace characters per RFC 2045:
+    // "Any characters outside of the base64 alphabet are to be ignored in
+    // base64-encoded data."
+    // This includes spaces (ASCII 32), tabs (ASCII 9), newlines (ASCII 10),
+    // and carriage returns (ASCII 13).
+    var cleaned = part.replaceAll(RegExp(r'\s'), '');
     var numberOfRequiredPadding =
         cleaned.length % 4 == 0 ? 0 : 4 - cleaned.length % 4;
     if (numberOfRequiredPadding > 0 && cleaned.endsWith('=')) {

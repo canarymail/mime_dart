@@ -30,6 +30,36 @@ void main() {
       input = '=?US-ASCII?B?S2VpdGggTW9vcmU=?= <moore@cs.utk.edu>';
       expect(MailCodec.decodeHeader(input), 'Keith Moore <moore@cs.utk.edu>');
     });
+
+    test('Base64 with embedded spaces (RFC 2045 compliant)', () {
+      // Test case 1: Simple base64 with spaces
+      const base64WithSpaces = 'SGVs bG8g V29y bGQ=';
+      expect(
+        MailCodec.base64.decodeText(base64WithSpaces, utf8),
+        'Hello World',
+      );
+
+      // Test case 2: Base64 with line breaks and spaces
+      const base64WithLineBreaksAndSpaces = 'SGVs bG8g\r\nV29y bGQ=';
+      expect(
+        MailCodec.base64.decodeText(base64WithLineBreaksAndSpaces, utf8),
+        'Hello World',
+      );
+
+      // Test case 3: Base64 with tabs
+      const base64WithTabs = 'SGVs\tbG8g\tV29y\tbGQ=';
+      expect(
+        MailCodec.base64.decodeText(base64WithTabs, utf8),
+        'Hello World',
+      );
+
+      // Test case 4: Base64 with mixed whitespace
+      const base64WithMixedWhitespace = 'SGVs bG8g \r\n V29y\tbGQ=';
+      expect(
+        MailCodec.base64.decodeText(base64WithMixedWhitespace, utf8),
+        'Hello World',
+      );
+    });
   });
 
   group('Base64 encoding', () {
