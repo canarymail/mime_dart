@@ -144,9 +144,11 @@ class TextMimeData extends MimeData {
     String? partsBoundary;
     if (contentTypeHeader?.mediaType.isMessage ?? false) {
       final headStop = body.indexOf('\r\n\r\n');
-      final boundaryMatcher = RegExp(r'boundary="(.+)"');
-      partsBoundary =
-          boundaryMatcher.firstMatch(body.substring(0, headStop))?.group(1);
+      if (headStop != -1) {
+        final boundaryMatcher = RegExp(r'boundary="(.+)"');
+        partsBoundary =
+            boundaryMatcher.firstMatch(body.substring(0, headStop))?.group(1);
+      }
     } else {
       partsBoundary = contentTypeHeader?.boundary;
     }
