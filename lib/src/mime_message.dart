@@ -1280,6 +1280,7 @@ class Header {
     'references',
     'canary-message-id',
     'dove-message-id',
+    'x-dove-message-id',
   };
 
   /// Renders this header into the [buffer] wrapping it if necessary.
