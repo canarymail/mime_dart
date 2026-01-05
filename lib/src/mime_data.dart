@@ -57,10 +57,8 @@ abstract class MimeData {
   int get bodySize => _bodySize;
 
   /// Decodes the text represented by the mime data
-  String decodeText(
-    ContentTypeHeader? contentTypeHeader,
-    String? contentTransferEncoding,
-  );
+  String decodeText(ContentTypeHeader? contentTypeHeader,
+      String? contentTransferEncoding,);
 
   /// Decodes the data represented by the mime data
   Uint8List decodeBinary(String? contentTransferEncoding);
@@ -193,10 +191,8 @@ class TextMimeData extends MimeData {
       MailCodec.decodeBinary(body, contentTransferEncoding);
 
   @override
-  String decodeText(
-    ContentTypeHeader? contentTypeHeader,
-    String? contentTransferEncoding,
-  ) =>
+  String decodeText(ContentTypeHeader? contentTypeHeader,
+      String? contentTransferEncoding,) =>
       MailCodec.decodeAnyText(
         body,
         contentTransferEncoding,
@@ -270,10 +266,8 @@ class BinaryMimeData extends MimeData {
     _bodySize = _bodyData.length;
   }
 
-  List<BinaryMimeData> _splitAndParse(
-    final String boundaryText,
-    final Uint8List bodyData,
-  ) {
+  List<BinaryMimeData> _splitAndParse(final String boundaryText,
+      final Uint8List bodyData,) {
     final boundary = '--$boundaryText\r\n'.codeUnits;
     final result = <BinaryMimeData>[];
     // end is expected to be \r\n for all but the last one, where -- is expected, possibly followed by \r\n
@@ -326,17 +320,21 @@ class BinaryMimeData extends MimeData {
   }
 
   @override
-  String decodeText(
-    ContentTypeHeader? contentTypeHeader,
-    String? contentTransferEncoding,
-  ) =>
+  String decodeText(ContentTypeHeader? contentTypeHeader,
+      String? contentTransferEncoding,) {
+    try {
       _bodyStartIndex == null
           ? ''
           : MailCodec.decodeAsText(
-              _bodyData,
-              contentTransferEncoding,
-              contentTypeHeader?.charset,
-            );
+        _bodyData,
+        contentTransferEncoding,
+        contentTypeHeader?.charset,
+      );
+    } catch (e) {
+      // for some mails, with gmail api, it give already decoded part with base64 content-transfer-encoding
+      return utf8.decode(_bodyData);
+    }
+  }
 
   @override
   Uint8List decodeBinary(String? contentTransferEncoding) {
@@ -373,16 +371,20 @@ class BinaryMimeData extends MimeData {
           headerData[i + 2] == AsciiRunes.runeCarriageReturn &&
           headerData[i + 3] == AsciiRunes.runeLineFeed) {
         final headerLines =
-            String.fromCharCodes(headerData, 0, i).split('\r\n');
+        String.fromCharCodes(headerData, 0, i).split('\r\n');
         _bodyStartIndex = i + 4;
 
-        return ParserHelper.parseHeaderLines(headerLines).headersList;
+        return ParserHelper
+            .parseHeaderLines(headerLines)
+            .headersList;
       }
     }
     // the whole data is just headers:
     final headerLines = String.fromCharCodes(headerData).split('\r\n');
 
-    return ParserHelper.parseHeaderLines(headerLines).headersList;
+    return ParserHelper
+        .parseHeaderLines(headerLines)
+        .headersList;
   }
 
   @override
