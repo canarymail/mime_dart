@@ -323,7 +323,7 @@ class BinaryMimeData extends MimeData {
   String decodeText(ContentTypeHeader? contentTypeHeader,
       String? contentTransferEncoding,) {
     try {
-      _bodyStartIndex == null
+      return _bodyStartIndex == null
           ? ''
           : MailCodec.decodeAsText(
         _bodyData,
