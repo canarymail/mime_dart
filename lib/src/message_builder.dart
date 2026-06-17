@@ -497,12 +497,19 @@ class PartBuilder {
   ///
   /// This will add an `AttachmentInfo` element to the `attachments`
   /// list of this builder.
+  /// [preEncodedBase64] lets the caller supply the already MIME-base64-encoded
+  /// form of [data] (e.g. computed on a background isolate). When provided, the
+  /// expensive synchronous [MailCodec.base64.encodeData] call is skipped — this
+  /// is what keeps large-attachment encoding off the UI isolate. It must be the
+  /// exact output of `MailCodec.base64.encodeData(data)`; pass null to encode
+  /// inline as before.
   PartBuilder addBinary(
     Uint8List data,
     MediaType mediaType, {
     TransferEncoding transferEncoding = TransferEncoding.base64,
     ContentDispositionHeader? disposition,
     String? filename,
+    String? preEncodedBase64,
   }) {
     disposition ??= ContentDispositionHeader.from(
       ContentDisposition.attachment,
@@ -523,7 +530,7 @@ class PartBuilder {
     );
     _attachments.add(info);
     child._part.mimeData = TextMimeData(
-      MailCodec.base64.encodeData(data),
+      preEncodedBase64 ?? MailCodec.base64.encodeData(data),
       containsHeader: false,
     );
 
