@@ -222,7 +222,10 @@ class PartBuilder {
       boundary: multiPartBoundary,
     );
     if (name != null) {
-      contentType.parameters['name'] = '"$name"';
+      // Encode non-ASCII names (e.g. German umlauts) the same way as the
+      // Content-Disposition filename — see ContentDispositionHeader.render.
+      contentType.parameters['name'] =
+          '"${MailCodec.base64.encodeHeader(name)}"';
     }
     if (parameters != null && parameters.isNotEmpty) {
       contentType.parameters.addAll(parameters);

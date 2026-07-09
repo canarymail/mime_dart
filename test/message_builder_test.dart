@@ -273,6 +273,34 @@ END:VCARD\r
       );
     });
 
+    test('binary attachment with German umlauts in filename', () {
+      const umlautFilename = 'Präsentation für Übersicht.pdf';
+      final builder = MessageBuilder()
+        ..from = [const MailAddress('Personal Name', 'sender@domain.com')]
+        ..to = [
+          const MailAddress('Recipient Personal Name', 'recipient@domain.com'),
+        ]
+        ..text = 'Hello world!'
+        ..addBinary(
+          Uint8List.fromList([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]),
+          MediaSubtype.imageJpeg.mediaType,
+          filename: umlautFilename,
+        );
+      final message = builder.buildMimeMessage();
+      final rendered = message.renderMessage();
+
+      // Header field bodies must stay 7-bit US-ASCII (RFC 5322/2045) - the
+      // raw umlaut characters must never appear directly in the rendered
+      // message (every other part of this message - addresses, plain text,
+      // base64 body - is already ASCII-only, so any non-ASCII rune here
+      // can only come from an unencoded filename header).
+      expect(rendered.runes.every((r) => r < 128), isTrue);
+
+      final parsed = MimeMessage.parseFromText(rendered);
+      final disposition = parsed.parts?[1].getHeaderContentDisposition();
+      expect(disposition?.filename, umlautFilename);
+    });
+
     test('implicit multipart with binary attachment and text', () {
       final builder = MessageBuilder()
         ..from = [const MailAddress('Personal Name', 'sender@domain.com')]
