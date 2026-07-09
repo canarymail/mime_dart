@@ -1965,7 +1965,15 @@ class ContentDispositionHeader extends ParameterizedHeader {
   String render([StringBuffer? buffer]) {
     buffer ??= StringBuffer();
     buffer.write(dispositionText);
-    renderField('filename', filename, buffer, quote: true);
+    // Header field bodies must stay 7-bit US-ASCII (RFC 5322/2045). A
+    // filename with non-ASCII characters (e.g. German umlauts) is
+    // RFC 2047 encoded-word encoded here, mirroring the decode side
+    // (MailCodec.decodeHeader is already applied to filename above), so
+    // otherwise raw UTF-8 bytes end up embedded in the header and get
+    // mis-decoded as Latin-1 (mojibake) by receiving clients/servers.
+    final encodedFilename =
+        filename == null ? null : MailCodec.base64.encodeHeader(filename!);
+    renderField('filename', encodedFilename, buffer, quote: true);
     renderDateField('creation-date', creationDate, buffer);
     renderDateField('modification-date', modificationDate, buffer);
     renderDateField('read-date', readDate, buffer);
