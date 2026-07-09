@@ -224,8 +224,14 @@ class PartBuilder {
     if (name != null) {
       // Encode non-ASCII names (e.g. German umlauts) the same way as the
       // Content-Disposition filename — see ContentDispositionHeader.render.
-      contentType.parameters['name'] =
-          '"${MailCodec.base64.encodeHeader(name)}"';
+      if (name.runes.every((r) => r < 128)) {
+        contentType.parameters['name'] = '"$name"';
+      } else {
+        contentType.parameters['name*'] =
+            "UTF-8''${MailCodec.encodeRfc2231Value(name)}";
+        contentType.parameters['name'] =
+            '"${MailCodec.base64.encodeHeader(name)}"';
+      }
     }
     if (parameters != null && parameters.isNotEmpty) {
       contentType.parameters.addAll(parameters);

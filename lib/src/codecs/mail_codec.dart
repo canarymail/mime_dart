@@ -182,6 +182,57 @@ abstract class MailCodec {
     bool isHeader = false,
   });
 
+  /// Encodes [value] as an RFC 2231 extended-parameter value
+  /// (`UTF-8''<percent-encoded>`), e.g. for `filename*=`/`name*=` when a
+  /// parameter value contains non-ASCII characters. RFC 2047 encoded-words
+  /// are not valid inside a quoted-string (RFC 2047 §5) — the extended
+  /// parameter is the spec-correct way to carry non-ASCII parameter values,
+  /// so callers should pair this with an RFC 2047-encoded plain fallback
+  /// parameter for parsers that don't understand RFC 2231. Compare
+  /// https://tools.ietf.org/html/rfc2231 for details.
+  static String encodeRfc2231Value(String value) {
+    final buffer = StringBuffer();
+    for (final byte in encodingUtf8.encode(value)) {
+      final isUnreserved = (byte >= 0x41 && byte <= 0x5A) || // A-Z
+          (byte >= 0x61 && byte <= 0x7A) || // a-z
+          (byte >= 0x30 && byte <= 0x39) || // 0-9
+          byte == 0x2D || // -
+          byte == 0x5F || // _
+          byte == 0x2E; // .
+      if (isUnreserved) {
+        buffer.writeCharCode(byte);
+      } else {
+        buffer
+          ..write('%')
+          ..write(byte.toRadixString(16).toUpperCase().padLeft(2, '0'));
+      }
+    }
+    return buffer.toString();
+  }
+
+  /// Decodes an RFC 2231 extended-parameter value of the form
+  /// `<charset>'<language>'<percent-encoded-value>` (e.g.
+  /// `UTF-8''%C3%9Cbersicht.pdf`), as produced by [encodeRfc2231Value].
+  /// Assumes the percent-encoded bytes are UTF-8 (what [encodeRfc2231Value]
+  /// always emits, and the overwhelmingly common case in the wild); returns
+  /// null if [raw] is null or doesn't match the expected shape.
+  static String? decodeRfc2231Value(final String? raw) {
+    if (raw == null) {
+      return null;
+    }
+    final firstQuote = raw.indexOf("'");
+    final secondQuote =
+        firstQuote == -1 ? -1 : raw.indexOf("'", firstQuote + 1);
+    if (firstQuote == -1 || secondQuote == -1) {
+      return null;
+    }
+    try {
+      return Uri.decodeComponent(raw.substring(secondQuote + 1));
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Decodes the given header [input] value.
   static String? decodeHeader(final String? input) {
     if (input == null || input.isEmpty) {

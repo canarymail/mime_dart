@@ -1881,7 +1881,13 @@ class ContentDispositionHeader extends ParameterizedHeader {
         break;
     }
 
-    filename = MailCodec.decodeHeader(parameters['filename']);
+    // Prefer the RFC 2231 extended parameter (filename*=) when present —
+    // it's the spec-correct, unambiguous encoding we emit ourselves in
+    // render() below. Fall back to the plain filename= parameter, which may
+    // itself be RFC 2047 encoded-word encoded (either by us, for parsers
+    // that don't understand RFC 2231, or by another sender).
+    filename = MailCodec.decodeRfc2231Value(parameters['filename*']) ??
+        MailCodec.decodeHeader(parameters['filename']);
     creationDate = DateCodec.decodeDate(parameters['creation-date']);
     modificationDate = DateCodec.decodeDate(parameters['modification-date']);
     readDate = DateCodec.decodeDate(parameters['read-date']);
@@ -1966,14 +1972,27 @@ class ContentDispositionHeader extends ParameterizedHeader {
     buffer ??= StringBuffer();
     buffer.write(dispositionText);
     // Header field bodies must stay 7-bit US-ASCII (RFC 5322/2045). A
-    // filename with non-ASCII characters (e.g. German umlauts) is
-    // RFC 2047 encoded-word encoded here, mirroring the decode side
-    // (MailCodec.decodeHeader is already applied to filename above), so
-    // otherwise raw UTF-8 bytes end up embedded in the header and get
+    // filename with non-ASCII characters (e.g. German umlauts) can't be
+    // written raw, or it ends up embedded as raw UTF-8 bytes and gets
     // mis-decoded as Latin-1 (mojibake) by receiving clients/servers.
-    final encodedFilename =
-        filename == null ? null : MailCodec.base64.encodeHeader(filename!);
-    renderField('filename', encodedFilename, buffer, quote: true);
+    //
+    // RFC 2047 encoded-words are not valid inside a quoted-string (RFC 2047
+    // §5), so the spec-correct fix is the RFC 2231 extended parameter
+    // (filename*=UTF-8''<percent-encoded>) — decoded on the way in above.
+    // We also emit an RFC 2047-encoded plain filename= alongside it, purely
+    // as a fallback for parsers that don't understand RFC 2231 (most modern
+    // clients — Apple Mail, Gmail, Outlook — already decode that form fine
+    // even though it's technically non-compliant).
+    final name = filename;
+    if (name == null || _isAsciiOnly(name)) {
+      renderField('filename', name, buffer, quote: true);
+    } else {
+      buffer
+        ..write("; filename*=UTF-8''")
+        ..write(MailCodec.encodeRfc2231Value(name));
+      renderField('filename', MailCodec.base64.encodeHeader(name), buffer,
+          quote: true);
+    }
     renderDateField('creation-date', creationDate, buffer);
     renderDateField('modification-date', modificationDate, buffer);
     renderDateField('read-date', readDate, buffer);
@@ -1990,6 +2009,8 @@ class ContentDispositionHeader extends ParameterizedHeader {
 
     return buffer.toString();
   }
+
+  static bool _isAsciiOnly(String value) => value.runes.every((r) => r < 128);
 
   @override
   void setParameter(String name, String quotedValue) {

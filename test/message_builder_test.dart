@@ -296,9 +296,30 @@ END:VCARD\r
       // can only come from an unencoded filename header).
       expect(rendered.runes.every((r) => r < 128), isTrue);
 
+      // RFC 2047 encoded-words aren't valid inside a quoted-string (RFC 2047
+      // §5) — the spec-correct encoding for a non-ASCII filename= parameter
+      // is the RFC 2231 extended form. Assert it's actually emitted, not
+      // just that some encoding round-trips.
+      expect(rendered, contains("filename*=UTF-8''"));
+
       final parsed = MimeMessage.parseFromText(rendered);
       final disposition = parsed.parts?[1].getHeaderContentDisposition();
       expect(disposition?.filename, umlautFilename);
+    });
+
+    test('binary attachment filename with only an RFC 2231 filename* param '
+        'decodes correctly (no plain filename= fallback present)', () {
+      // Simulates a message from another sender that only provides the
+      // RFC 2231 form, to verify the decode side doesn't depend on the
+      // RFC 2047 fallback also being present.
+      const rendered = 'Content-Type: image/jpeg\r\n'
+          'Content-Disposition: attachment;\r\n'
+          " filename*=UTF-8''%C3%9Cbersicht.pdf\r\n"
+          '\r\n'
+          'body';
+      final parsed = MimeMessage.parseFromText(rendered);
+      final disposition = parsed.getHeaderContentDisposition();
+      expect(disposition?.filename, 'Übersicht.pdf');
     });
 
     test('implicit multipart with binary attachment and text', () {
