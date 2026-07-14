@@ -41,21 +41,28 @@ class Base64MailCodec extends MailCodec {
     int nameLength = 0,
     bool fromStart = false,
   }) {
+    // Walk runes (Unicode code points) but track UTF-16 *code unit* offsets,
+    // since text.substring() below indexes by code unit. Runes outside the
+    // BMP (e.g. most emoji) occupy 2 code units each — indexing substring()
+    // with a rune index instead would slice a surrogate pair in half.
     final runes = List.from(text.runes, growable: false);
     var numberOfRunesAbove7Bit = 0;
     var startIndex = -1;
     var endIndex = -1;
+    var codeUnitOffset = 0;
     for (var runeIndex = 0; runeIndex < runes.length; runeIndex++) {
       final rune = runes[runeIndex];
+      final runeCodeUnitLength = rune > 0xFFFF ? 2 : 1;
       if (rune > 128) {
         numberOfRunesAbove7Bit++;
         if (startIndex == -1) {
-          startIndex = runeIndex;
-          endIndex = runeIndex;
+          startIndex = codeUnitOffset;
+          endIndex = codeUnitOffset + runeCodeUnitLength - 1;
         } else {
-          endIndex = runeIndex;
+          endIndex = codeUnitOffset + runeCodeUnitLength - 1;
         }
       }
+      codeUnitOffset += runeCodeUnitLength;
     }
     if (numberOfRunesAbove7Bit == 0) {
       return text;
