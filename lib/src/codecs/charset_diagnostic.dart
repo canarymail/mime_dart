@@ -61,9 +61,11 @@ class CharsetDiagnostic {
   /// Canonical codec name, when one resolved.
   final String? canonicalName;
 
-  /// Number of decoder-reported replacements, when the decoder exposes one.
+  /// Number of U+FFFD replacements in a successful malformed-input recovery.
   ///
-  /// A zero value can also mean that replacement count is unavailable.
+  /// This is counted only after strict decoding fails and replacement-mode
+  /// decoding succeeds. A literal U+FFFD in otherwise valid input is therefore
+  /// not counted.
   final int replacementCount;
 
   /// Converts the diagnostic to isolate-safe scalar data.

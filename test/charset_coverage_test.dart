@@ -146,11 +146,17 @@ void main() {
   test('valid UTF-8 U+FFFD is supported rather than a decode failure', () {
     expect(_decode('utf-8', [0xEF, 0xBF, 0xBD]), '\uFFFD');
     expect(diagnostics.single.kind, CharsetDiagnosticKind.supported);
+    expect(diagnostics.single.replacementCount, 0);
   });
 
   test('malformed input uses lenient output and reports decode failure', () {
     expect(_decode('utf-8', [0xFF]), '\uFFFD');
     expect(diagnostics.single.kind, CharsetDiagnosticKind.decodeFailure);
+    expect(diagnostics.single.replacementCount, 1);
+    expect(
+      CharsetDiagnostic.fromMap(diagnostics.single.toMap()).replacementCount,
+      1,
+    );
   });
 
   test('malformed quoted-printable input reports decode failure', () {
@@ -159,6 +165,7 @@ void main() {
       '\uFFFD',
     );
     expect(diagnostics.single.kind, CharsetDiagnosticKind.decodeFailure);
+    expect(diagnostics.single.replacementCount, 1);
   });
 
   test('known unsupported x-user-defined remains observable', () {

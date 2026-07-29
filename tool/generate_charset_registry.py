@@ -94,46 +94,6 @@ PYTHON_CANONICAL_OVERRIDES = {
     "utf_16_le": "utf-16le",
 }
 
-# Canonical names implemented by explicit MailCodec switch cases. Generated
-# single-byte fallbacks must never claim these names: doing so previously left
-# a latent windows-1252 -> strict Latin-1 mapping in the generated registry.
-EXPLICIT_CODEC_CANONICALS = {
-    "big5",
-    "cp850",
-    "euc-jp",
-    "euc-kr",
-    "gb18030",
-    "gbk",
-    "iso-2022-jp",
-    "iso-8859-2",
-    "iso-8859-3",
-    "iso-8859-4",
-    "iso-8859-5",
-    "iso-8859-6",
-    "iso-8859-7",
-    "iso-8859-8",
-    "iso-8859-8-i",
-    "iso-8859-10",
-    "iso-8859-13",
-    "iso-8859-14",
-    "iso-8859-15",
-    "iso-8859-16",
-    "koi8-r",
-    "koi8-u",
-    "shift_jis",
-    "utf-8",
-    "utf-8-sig",
-    "utf-16",
-    "utf-16be",
-    "utf-16le",
-    "windows-1250",
-    "windows-1251",
-    "windows-1252",
-    "windows-1253",
-    "windows-1254",
-    "windows-1256",
-}
-
 PREFERRED_GENERATED_CANONICALS = {
     "ibm866": "cp866",
     "macintosh": "mac_roman",
@@ -187,6 +147,22 @@ def _dart_set(name: str, values: set[str]) -> str:
     return "\n".join(lines)
 
 
+def _load_explicit_codec_canonicals(source: Path) -> set[str]:
+    """Read canonical names from MailCodec's authoritative dispatch switch."""
+    text = source.read_text(encoding="utf-8")
+    method_start = text.index("static convert.Encoding? _codecForCanonicalName(")
+    switch_start = text.index("switch (canonicalName)", method_start)
+    switch_end = text.index("\n    final pythonName =", switch_start)
+    canonical_names = set(
+        re.findall(r"case '([^']+)':", text[switch_start:switch_end])
+    )
+    if not canonical_names:
+        raise ValueError(
+            f"no explicit charset codec cases found in {source}"
+        )
+    return canonical_names
+
+
 def _preferred_python_canonical(name: str) -> str:
     override = PYTHON_CANONICAL_OVERRIDES.get(name)
     if override is not None:
@@ -226,9 +202,16 @@ def _require_python_version() -> None:
         )
 
 
-def generate(source: Path | None, output: Path) -> None:
+def generate(
+    source: Path | None,
+    output: Path,
+    mail_codec_source: Path,
+) -> None:
     raw, groups = _load_whatwg(source)
     digest = hashlib.sha256(raw).hexdigest()
+    explicit_codec_canonicals = _load_explicit_codec_canonicals(
+        mail_codec_source
+    )
 
     whatwg_labels: dict[str, str] = {}
     replacement_labels: set[str] = set()
@@ -292,7 +275,7 @@ def generate(source: Path | None, output: Path) -> None:
     generated_codec_names: dict[str, str] = {}
     for python_name in sorted(supported_python - EXISTING_PYTHON_SINGLE_BYTE):
         canonical = canonical_by_python[python_name]
-        if canonical in EXPLICIT_CODEC_CANONICALS:
+        if canonical in explicit_codec_canonicals:
             continue
         preferred = PREFERRED_GENERATED_CANONICALS.get(canonical)
         if preferred is not None and python_name != preferred:
@@ -304,6 +287,14 @@ def generate(source: Path | None, output: Path) -> None:
                 f"{previous} != {python_name}"
             )
     generated_codec_names.update(PREFERRED_GENERATED_CANONICALS)
+    explicit_overlap = (
+        generated_codec_names.keys() & explicit_codec_canonicals
+    )
+    if explicit_overlap:
+        raise ValueError(
+            "generated codecs overlap MailCodec's explicit cases: "
+            f"{sorted(explicit_overlap)}"
+        )
 
     contents = f"""// GENERATED CODE - DO NOT EDIT.
 // ignore_for_file: lines_longer_than_80_chars, public_member_api_docs
@@ -319,6 +310,8 @@ def generate(source: Path | None, output: Path) -> None:
 {_dart_map("pythonMimeCharsetAliases", python_aliases)}
 
 {_dart_map("generatedSingleByteCodecNames", generated_codec_names)}
+
+{_dart_set("explicitCharsetCodecCanonicalNames", explicit_codec_canonicals)}
 
 {_dart_set("whatwgReplacementCharsetLabels", replacement_labels)}
 
@@ -345,6 +338,12 @@ def main() -> None:
         default=Path("lib/src/codecs/generated_charset_registry.dart"),
     )
     parser.add_argument(
+        "--mail-codec-source",
+        type=Path,
+        default=Path("lib/src/codecs/mail_codec.dart"),
+        help="MailCodec source containing the authoritative codec switch",
+    )
+    parser.add_argument(
         "--check",
         action="store_true",
         help="Fail if the checked-in registry differs from generated output",
@@ -362,11 +361,11 @@ def main() -> None:
         args.source.parent.mkdir(parents=True, exist_ok=True)
         args.source.write_bytes(raw)
     if not args.check:
-        generate(args.source, args.output)
+        generate(args.source, args.output, args.mail_codec_source)
         return
     with tempfile.TemporaryDirectory() as temporary_directory:
         generated = Path(temporary_directory) / args.output.name
-        generate(args.source, generated)
+        generate(args.source, generated, args.mail_codec_source)
         if not args.output.exists() or args.output.read_bytes() != generated.read_bytes():
             raise SystemExit(
                 f"{args.output} is stale; run {Path(__file__).name} to regenerate"

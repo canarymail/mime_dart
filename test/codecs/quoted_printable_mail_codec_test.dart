@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert' as convert;
 
 import 'package:mime_dart/src/codecs/mail_codec.dart';
@@ -69,6 +70,45 @@ void main() {
         MailCodec.quotedPrintable
             .decodeText(input, const convert.Latin1Codec()),
         'jeden Tag ändern können',
+      );
+    });
+
+    test('public decoder preserves malformed charset bytes', () {
+      final printed = <String>[];
+      final actual = runZoned(
+        () => MailCodec.quotedPrintable.decodeText('=FF', convert.utf8),
+        zoneSpecification: ZoneSpecification(
+          print: (_, __, ___, line) => printed.add(line),
+        ),
+      );
+
+      expect(actual, '\u00FF');
+      expect(printed, isEmpty);
+    });
+
+    test('invalid hex is preserved without writing to stdout', () {
+      final printed = <String>[];
+      final actual = runZoned(
+        () => MailCodec.quotedPrintable.decodeText('=XX', convert.utf8),
+        zoneSpecification: ZoneSpecification(
+          print: (_, __, ___, line) => printed.add(line),
+        ),
+      );
+
+      expect(
+        actual,
+        'XX',
+      );
+      expect(printed, isEmpty);
+    });
+
+    test('strict decoder exposes malformed charset bytes', () {
+      expect(
+        () => MailCodec.quotedPrintable.decodeTextStrict(
+          '=FF',
+          convert.utf8,
+        ),
+        throwsFormatException,
       );
     });
   });

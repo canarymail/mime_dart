@@ -321,12 +321,12 @@ abstract class MailCodec {
     _CharsetResolution resolution,
     CharsetDiagnosticSource source,
     String Function(convert.Encoding codec) decode,
-    String fallback,
+    String Function() fallback,
   ) {
     final codec = resolution.codec;
     final lenientCodec = resolution.lenientCodec;
     if (codec == null || lenientCodec == null) {
-      return fallback;
+      return fallback();
     }
     if (charsetDiagnosticHandler == null) {
       return decode(lenientCodec);
@@ -342,16 +342,19 @@ abstract class MailCodec {
       return decoded;
     } on FormatException {
       String decoded;
+      var replacementCount = 0;
       try {
         decoded = decode(lenientCodec);
+        replacementCount = '\uFFFD'.allMatches(decoded).length;
       } on FormatException {
-        decoded = fallback;
+        decoded = fallback();
       }
       _emitCharsetDiagnostic(
         kind: CharsetDiagnosticKind.decodeFailure,
         source: source,
         label: resolution.label,
         canonicalName: resolution.canonicalName,
+        replacementCount: replacementCount,
       );
       return decoded;
     }
@@ -363,8 +366,8 @@ abstract class MailCodec {
     convert.Encoding encoding, {
     required bool isHeader,
   })>{
-    'q': quotedPrintable.decodeText,
-    'quoted-printable': quotedPrintable.decodeText,
+    'q': quotedPrintable.decodeTextStrict,
+    'quoted-printable': quotedPrintable.decodeTextStrict,
     'b': base64.decodeText,
     'base64': base64.decodeText,
     'base-64': base64.decodeText,
@@ -516,7 +519,7 @@ abstract class MailCodec {
         resolution,
         CharsetDiagnosticSource.header,
         (codec) => decoder(part, codec, isHeader: true),
-        sequence,
+        () => sequence,
       );
       buffer.write(decoded);
       reminder = reminder.substring(match?.end ?? 0);
@@ -550,8 +553,6 @@ abstract class MailCodec {
     final tEncoding = transferEncoding ?? contentTransferEncodingNone;
     final decoder = _binaryDecodersByName[tEncoding.toLowerCase()];
     if (decoder == null) {
-      print('Error: no binary decoder found for [$tEncoding].');
-
       return Uint8List.fromList(text.codeUnits);
     }
 
@@ -596,7 +597,7 @@ abstract class MailCodec {
         resolution,
         CharsetDiagnosticSource.body,
         (codec) => codec.decode(data),
-        encodingUtf8.decode(data, allowMalformed: true),
+        () => encodingUtf8.decode(data, allowMalformed: true),
       );
     }
     final text = String.fromCharCodes(data);
@@ -613,9 +614,6 @@ abstract class MailCodec {
     final transferEnc = transferEncoding ?? contentTransferEncodingNone;
     final decoder = _textDecodersByName[transferEnc.toLowerCase()];
     if (decoder == null) {
-      print('Error: no decoder found for '
-          'content-transfer-encoding [$transferEnc].');
-
       return text;
     }
     final cs = charset ?? 'utf8';
@@ -628,7 +626,7 @@ abstract class MailCodec {
       resolution,
       CharsetDiagnosticSource.body,
       (codec) => decoder(text, codec, isHeader: false),
-      text,
+      () => text,
     );
   }
 

@@ -189,6 +189,36 @@ class QuotedPrintableMailCodec extends MailCodec {
     final String part,
     final Encoding codec, {
     bool isHeader = false,
+  }) =>
+      _decodeText(
+        part,
+        codec,
+        isHeader: isHeader,
+        propagateCodecErrors: false,
+      );
+
+  /// Decodes text while allowing strict charset failures to reach the caller.
+  ///
+  /// [MailCodec] uses this variant so it can retry with the corresponding
+  /// replacement-mode charset and emit an accurate diagnostic. Direct users
+  /// of [decodeText] retain its historical best-effort behavior.
+  String decodeTextStrict(
+    final String part,
+    final Encoding codec, {
+    bool isHeader = false,
+  }) =>
+      _decodeText(
+        part,
+        codec,
+        isHeader: isHeader,
+        propagateCodecErrors: true,
+      );
+
+  String _decodeText(
+    String part,
+    Encoding codec, {
+    required bool isHeader,
+    required bool propagateCodecErrors,
   }) {
     final buffer = StringBuffer();
     // remove all soft-breaks:
@@ -199,8 +229,6 @@ class QuotedPrintableMailCodec extends MailCodec {
         final hexText = cleaned.substring(i + 1, i + 3);
         var charCode = int.tryParse(hexText, radix: 16);
         if (charCode == null) {
-          print('unable to decode quotedPrintable [$cleaned]: '
-              'invalid hex code [$hexText] at $i.');
           buffer.write(hexText);
         } else {
           final charCodes = [charCode];
@@ -211,10 +239,14 @@ class QuotedPrintableMailCodec extends MailCodec {
             charCodes.add(charCode);
           }
 
-          // Let strict charset failures reach MailCodec's diagnostic wrapper.
-          // It will retry this complete transfer-decoding operation with the
-          // corresponding replacement-mode codec.
-          buffer.write(codec.decode(charCodes));
+          try {
+            buffer.write(codec.decode(charCodes));
+          } on FormatException {
+            if (propagateCodecErrors) {
+              rethrow;
+            }
+            buffer.write(String.fromCharCodes(charCodes));
+          }
         }
         i += 2;
       } else if (isHeader && char == '_') {

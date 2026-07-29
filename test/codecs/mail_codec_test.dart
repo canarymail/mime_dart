@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:mime_dart/src/codecs/mail_codec.dart';
 import 'package:test/test.dart';
 // cSpell:disable
@@ -127,6 +129,34 @@ void main() {
         MailCodec.decodeHeader(input),
         'Eine wichtige Information zu deiner LEGO® Bestellung!',
       );
+    });
+  });
+
+  group('Unknown transfer encodings', () {
+    test('text falls back without writing to stdout', () {
+      final printed = <String>[];
+      final actual = runZoned(
+        () => MailCodec.decodeAnyText('raw', 'unknown-transfer', 'utf-8'),
+        zoneSpecification: ZoneSpecification(
+          print: (_, __, ___, line) => printed.add(line),
+        ),
+      );
+
+      expect(actual, 'raw');
+      expect(printed, isEmpty);
+    });
+
+    test('binary falls back without writing to stdout', () {
+      final printed = <String>[];
+      final actual = runZoned(
+        () => MailCodec.decodeBinary('raw', 'unknown-transfer'),
+        zoneSpecification: ZoneSpecification(
+          print: (_, __, ___, line) => printed.add(line),
+        ),
+      );
+
+      expect(actual, 'raw'.codeUnits);
+      expect(printed, isEmpty);
     });
   });
 }

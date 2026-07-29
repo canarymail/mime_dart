@@ -56,8 +56,10 @@ void main() {
 
   test('generated fallbacks never shadow explicit canonical codecs', () {
     expect(
-      generatedSingleByteCodecNames.keys,
-      isNot(contains('windows-1252')),
+      generatedSingleByteCodecNames.keys.toSet().intersection(
+            explicitCharsetCodecCanonicalNames,
+          ),
+      isEmpty,
     );
   });
 
