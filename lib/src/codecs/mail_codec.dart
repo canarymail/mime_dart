@@ -1,7 +1,7 @@
 import 'dart:convert' as convert;
 import 'dart:typed_data';
 
-import 'package:enough_convert/enough_convert.dart';
+import 'package:mime_convert/mime_convert.dart';
 
 import '../mail_conventions.dart';
 import '../private/util/ascii_runes.dart';
@@ -117,7 +117,129 @@ abstract class MailCodec {
     'koi8-u': () => const Koi8uCodec(allowInvalid: true),
     'us-ascii': () => encodingAscii,
     'ascii': () => encodingAscii,
+    // Japanese / Korean. Backed by the vendor supersets (Windows-31J and UHC)
+    // rather than the strict national standards, matching what the labels mean
+    // in practice — see mime_convert's tool/generate_cjk_tables.py.
+    'shift_jis': () => const ShiftJisCodec(allowInvalid: true),
+    'euc-jp': () => const EucJpCodec(allowInvalid: true),
+    'euc-kr': () => const EucKrCodec(allowInvalid: true),
   };
+
+  /// Alternative spellings for charsets already in [_charsetCodecsByName].
+  ///
+  /// Lookup normalisation (see [_normalizeCharsetName]) folds separators and
+  /// strips an `x-` prefix, which handles most variation mechanically. This map
+  /// covers the rest — names that share no common stem with their canonical
+  /// form, such as `csshiftjis` or `latin1`.
+  ///
+  /// Sourced from the WHATWG Encoding Standard's label list and Python's
+  /// `encodings.aliases`, which between them cover what appears in real mail.
+  static const _charsetAliases = <String, String>{
+    // Japanese
+    'sjis': 'shift_jis',
+    'shift-jis': 'shift_jis',
+    'ms_kanji': 'shift_jis',
+    'csshiftjis': 'shift_jis',
+    'windows-31j': 'shift_jis',
+    'cp932': 'shift_jis',
+    'ms932': 'shift_jis',
+    'eucjp': 'euc-jp',
+    'ujis': 'euc-jp',
+    'cseucpkdfmtjapanese': 'euc-jp',
+    // Korean
+    'euckr': 'euc-kr',
+    'cseuckr': 'euc-kr',
+    'ks_c_5601-1987': 'euc-kr',
+    'ks_c_5601-1989': 'euc-kr',
+    'ksc5601': 'euc-kr',
+    'korean': 'euc-kr',
+    'cp949': 'euc-kr',
+    'uhc': 'euc-kr',
+    // Latin — already supported, but these spellings previously missed.
+    'latin1': 'iso-8859-1',
+    'l1': 'iso-8859-1',
+    'iso_8859-1': 'iso-8859-1',
+    'iso-ir-100': 'iso-8859-1',
+    'csisolatin1': 'iso-8859-1',
+    'cp819': 'iso-8859-1',
+    'ibm819': 'iso-8859-1',
+    'latin2': 'iso-8859-2',
+    'iso_8859-2': 'iso-8859-2',
+    'csisolatin2': 'iso-8859-2',
+    'latin9': 'iso-8859-15',
+    'iso_8859-15': 'iso-8859-15',
+    // Cyrillic / Greek / Hebrew spellings seen in the wild.
+    'cskoi8r': 'koi8-r',
+    'cp1251': 'windows-1251',
+    'cp-1251': 'windows-1251',
+    'utf8': 'utf-8',
+    'utf_8': 'utf-8',
+    'unicode-1-1-utf-8': 'utf-8',
+  };
+
+  /// Canonicalise a charset label before looking it up.
+  ///
+  /// Charset names arrive with wide variation: case, `_` versus `-`, an `x-`
+  /// vendor prefix, surrounding whitespace, and an RFC 2231 `*language` suffix
+  /// on encoded words. Previously the only normalisation was `toLowerCase()`,
+  /// so `Shift_JIS` resolved but `shift-jis`, `sjis`, `x-sjis` and `csShiftJIS`
+  /// all missed — and so did `latin1` and `csisolatin1`, for charsets this
+  /// package has always supported.
+  static String _normalizeCharsetName(String name) {
+    var normalized = name.trim().toLowerCase();
+
+    // RFC 2231 allows `charset*language` inside an encoded word.
+    final star = normalized.indexOf('*');
+    if (star > 0) {
+      normalized = normalized.substring(0, star);
+    }
+
+    // Strip surrounding quotes a caller may have left on.
+    if (normalized.length > 1 &&
+        normalized.startsWith('"') &&
+        normalized.endsWith('"')) {
+      normalized = normalized.substring(1, normalized.length - 1);
+    }
+
+    if (_charsetCodecsByName.containsKey(normalized)) {
+      return normalized;
+    }
+
+    final direct = _charsetAliases[normalized];
+    if (direct != null) {
+      return direct;
+    }
+
+    // `x-` marks a vendor/experimental name; the remainder is usually the
+    // real label (x-sjis, x-euc-jp, x-mac-chinesesimp).
+    var stem = normalized;
+    if (stem.startsWith('x-')) {
+      stem = stem.substring(2);
+      if (_charsetCodecsByName.containsKey(stem)) {
+        return stem;
+      }
+      final aliased = _charsetAliases[stem];
+      if (aliased != null) {
+        return aliased;
+      }
+    }
+
+    // Fold separators: iso_8859-1 / iso88591 / shift-jis all reach their
+    // canonical spelling this way without needing an entry each.
+    final squashed = stem.replaceAll(RegExp('[ _-]'), '');
+    for (final candidate in _charsetCodecsByName.keys) {
+      if (candidate.replaceAll(RegExp('[ _-]'), '') == squashed) {
+        return candidate;
+      }
+    }
+    for (final entry in _charsetAliases.entries) {
+      if (entry.key.replaceAll(RegExp('[ _-]'), '') == squashed) {
+        return entry.value;
+      }
+    }
+
+    return normalized;
+  }
   static final _textDecodersByName = <String,
       String Function(
     String text,
@@ -248,7 +370,9 @@ abstract class MailCodec {
           .substring(separatorIndex + 1, separatorIndex + 2)
           .toLowerCase();
 
-      final codec = _charsetCodecsByName[characterEncodingName]?.call();
+      final codec =
+          _charsetCodecsByName[_normalizeCharsetName(characterEncodingName)]
+              ?.call();
       if (codec == null) {
         print('Error: no encoding found for [$characterEncodingName].');
         buffer.write(reminder);
@@ -341,7 +465,8 @@ abstract class MailCodec {
         transferEncodingLC == '7bit' ||
         transferEncodingLC == 'binary') {
       final cs = charset ?? 'utf8';
-      final codec = _charsetCodecsByName[cs.toLowerCase()]?.call();
+      final codec =
+          _charsetCodecsByName[_normalizeCharsetName(cs)]?.call();
       if (codec == null) {
         print('Error: no encoding found for charset [$cs].');
 
@@ -371,7 +496,7 @@ abstract class MailCodec {
       return text;
     }
     final cs = charset ?? 'utf8';
-    final codec = _charsetCodecsByName[cs.toLowerCase()]?.call();
+    final codec = _charsetCodecsByName[_normalizeCharsetName(cs)]?.call();
     if (codec == null) {
       print('Error: no encoding found for charset [$cs].');
 

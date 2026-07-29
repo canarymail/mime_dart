@@ -22,11 +22,26 @@ platforms:
 
 dependencies:
   collection: ^1.19.1
-  enough_convert: ^1.6.0
+  # Fork of enough_convert, renamed to match this package. Carries the charset
+  # codecs upstream lacks — notably the CJK ones (Shift_JIS, EUC-JP, EUC-KR),
+  # without which those messages cannot be decoded at all.
+  mime_convert:
+    git:
+      url: https://github.com/canarymail/mime_convert.git
+      # Pinned until add-cjk-codecs merges to main — without a ref this
+      # resolves the default branch, which has no CJK codecs, so the imports
+      # below would not compile. Drop the ref once merged.
+      ref: add-cjk-codecs
   intl: any
 
 dependency_overrides:
   # http: ^1.4.0 # for dart_code_metrics
+  # Resolve mime_convert from the sibling submodule when developing this package
+  # standalone, so local codec work is picked up without pushing first. Ignored
+  # when mime_dart is itself a dependency — only the root package's overrides
+  # apply — so consumers still get the git source declared above.
+  mime_convert:
+    path: ../mime_convert
 
 dev_dependencies:
   dart_code_linter: ^3.0.0

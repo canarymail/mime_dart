@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:collection/collection.dart' show IterableExtension;
-import 'package:enough_convert/enough_convert.dart';
+import 'package:mime_convert/mime_convert.dart';
 import 'package:mime_dart/src/codecs/date_codec.dart';
 import 'package:mime_dart/src/codecs/mail_codec.dart';
 import 'package:mime_dart/src/mail_address.dart';
