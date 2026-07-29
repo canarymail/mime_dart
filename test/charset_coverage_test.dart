@@ -120,6 +120,47 @@ void main() {
     expect(_decode('utf-8-sig', [0xEF, 0xBB, 0xBF, 0x41]), 'A');
   });
 
+  group('UTF-16 BOM handling', () {
+    for (final label in [
+      'utf-16',
+      'unicode',
+      'ucs-2',
+      'csunicode',
+      'iso-10646-ucs-2',
+    ]) {
+      test('$label sniffs either byte order and consumes the BOM', () {
+        expect(_decode(label, [0xFE, 0xFF, 0x00, 0x41]), 'A');
+        expect(_decode(label, [0xFF, 0xFE, 0x41, 0x00]), 'A');
+        expect(_decode(label, [0x41, 0x00]), 'A');
+      });
+    }
+
+    test('explicit endian labels consume and honor a BOM', () {
+      expect(_decode('utf-16le', [0xFF, 0xFE, 0x41, 0x00]), 'A');
+      expect(_decode('utf-16le', [0xFE, 0xFF, 0x00, 0x41]), 'A');
+      expect(_decode('utf-16be', [0xFE, 0xFF, 0x00, 0x41]), 'A');
+      expect(_decode('utf-16be', [0xFF, 0xFE, 0x41, 0x00]), 'A');
+    });
+  });
+
+  test('valid UTF-8 U+FFFD is supported rather than a decode failure', () {
+    expect(_decode('utf-8', [0xEF, 0xBF, 0xBD]), '\uFFFD');
+    expect(diagnostics.single.kind, CharsetDiagnosticKind.supported);
+  });
+
+  test('malformed input uses lenient output and reports decode failure', () {
+    expect(_decode('utf-8', [0xFF]), '\uFFFD');
+    expect(diagnostics.single.kind, CharsetDiagnosticKind.decodeFailure);
+  });
+
+  test('malformed quoted-printable input reports decode failure', () {
+    expect(
+      MailCodec.decodeAnyText('=FF', 'quoted-printable', 'utf-8'),
+      '\uFFFD',
+    );
+    expect(diagnostics.single.kind, CharsetDiagnosticKind.decodeFailure);
+  });
+
   test('known unsupported x-user-defined remains observable', () {
     _decode('x-user-defined', [0x80]);
 
@@ -167,6 +208,18 @@ void main() {
               ),
         ),
       );
+    });
+  }
+
+  for (final label in [
+    'x-utf-7',
+    'x_utf_7',
+    'x-iso-2022-kr',
+    'x_hz-gb-2312',
+  ]) {
+    test('$label remains blocked after compatibility normalization', () {
+      _decode(label, 'ASCII'.codeUnits);
+      expect(diagnostics.single.kind, CharsetDiagnosticKind.blocked);
     });
   }
 

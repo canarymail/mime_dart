@@ -27,12 +27,18 @@ class _CharsetResolution {
     required this.label,
     this.canonicalName,
     this.codec,
+    this.lenientCodec,
     this.failureKind,
   });
 
   final String label;
   final String? canonicalName;
+
+  /// Strict codec used to distinguish valid text from malformed input.
   final convert.Encoding? codec;
+
+  /// Replacement-mode codec used to preserve readable output after failure.
+  final convert.Encoding? lenientCodec;
   final CharsetDiagnosticKind? failureKind;
 }
 
@@ -72,6 +78,10 @@ abstract class MailCodec {
 
   static final Map<String, String> _separatorFoldedCharsetLabels =
       _buildSeparatorFoldedCharsetLabels();
+  static final Set<String> _separatorFoldedBlockedLabels =
+      knownBlockedCharsetLabels.map(_foldCharsetSeparators).toSet();
+  static final Set<String> _separatorFoldedUnsupportedLabels =
+      knownUnsupportedCharsetLabels.map(_foldCharsetSeparators).toSet();
 
   static Map<String, String> _buildSeparatorFoldedCharsetLabels() {
     final result = <String, String>{};
@@ -123,78 +133,116 @@ abstract class MailCodec {
     return buffer.toString();
   }
 
-  static convert.Encoding? _codecForCanonicalName(String canonicalName) {
+  static CharsetDiagnosticKind? _failureKindForLabel(String label) {
+    final exactCandidates = <String>[
+      label,
+      if (label.startsWith('x-')) label.substring(2),
+    ];
+    final folded = _foldCharsetSeparators(label);
+    final foldedCandidates = <String>[
+      folded,
+      if (folded.startsWith('x')) folded.substring(1),
+    ];
+    for (final candidate in exactCandidates) {
+      if (knownBlockedCharsetLabels.contains(candidate)) {
+        return CharsetDiagnosticKind.blocked;
+      }
+      if (knownUnsupportedCharsetLabels.contains(candidate)) {
+        return CharsetDiagnosticKind.unsupported;
+      }
+    }
+    if (foldedCandidates.any(_separatorFoldedBlockedLabels.contains)) {
+      return CharsetDiagnosticKind.blocked;
+    }
+    if (foldedCandidates.any(_separatorFoldedUnsupportedLabels.contains)) {
+      return CharsetDiagnosticKind.unsupported;
+    }
+    return null;
+  }
+
+  static convert.Encoding? _codecForCanonicalName(
+    String canonicalName, {
+    required bool allowInvalid,
+  }) {
     switch (canonicalName) {
       case 'utf-8':
-        return encodingUtf8;
+        return convert.Utf8Codec(allowMalformed: allowInvalid);
       case 'utf-8-sig':
-        return const Utf8SigCodec(allowInvalid: true);
+        return Utf8SigCodec(allowInvalid: allowInvalid);
+      case 'utf-16':
+        return Utf16Codec(allowInvalid: allowInvalid);
       case 'utf-16le':
-        return const Utf16LeCodec(allowInvalid: true);
+        return Utf16LeCodec(
+          allowInvalid: allowInvalid,
+          bomAware: true,
+        );
       case 'utf-16be':
-        return const Utf16BeCodec(allowInvalid: true);
+        return Utf16BeCodec(
+          allowInvalid: allowInvalid,
+          bomAware: true,
+        );
       case 'iso-8859-2':
-        return const Latin2Codec(allowInvalid: true);
+        return Latin2Codec(allowInvalid: allowInvalid);
       case 'iso-8859-3':
-        return const Latin3Codec(allowInvalid: true);
+        return Latin3Codec(allowInvalid: allowInvalid);
       case 'iso-8859-4':
-        return const Latin4Codec(allowInvalid: true);
+        return Latin4Codec(allowInvalid: allowInvalid);
       case 'iso-8859-5':
-        return const Latin5Codec(allowInvalid: true);
+        return Latin5Codec(allowInvalid: allowInvalid);
       case 'iso-8859-6':
-        return const Latin6Codec(allowInvalid: true);
+        return Latin6Codec(allowInvalid: allowInvalid);
       case 'iso-8859-7':
-        return const Latin7Codec(allowInvalid: true);
+        return Latin7Codec(allowInvalid: allowInvalid);
       case 'iso-8859-8':
       case 'iso-8859-8-i':
-        return const Latin8Codec(allowInvalid: true);
+        return Latin8Codec(allowInvalid: allowInvalid);
       case 'iso-8859-10':
-        return const Latin10Codec(allowInvalid: true);
+        return Latin10Codec(allowInvalid: allowInvalid);
       case 'iso-8859-13':
-        return const Latin13Codec(allowInvalid: true);
+        return Latin13Codec(allowInvalid: allowInvalid);
       case 'iso-8859-14':
-        return const Latin14Codec(allowInvalid: true);
+        return Latin14Codec(allowInvalid: allowInvalid);
       case 'iso-8859-15':
-        return const Latin15Codec(allowInvalid: true);
+        return Latin15Codec(allowInvalid: allowInvalid);
       case 'iso-8859-16':
-        return const Latin16Codec(allowInvalid: true);
+        return Latin16Codec(allowInvalid: allowInvalid);
       case 'windows-1250':
-        return const Windows1250Codec(allowInvalid: true);
+        return Windows1250Codec(allowInvalid: allowInvalid);
       case 'windows-1251':
-        return const Windows1251Codec(allowInvalid: true);
+        return Windows1251Codec(allowInvalid: allowInvalid);
       case 'windows-1252':
-        return const Windows1252Codec(allowInvalid: true);
+        return Windows1252Codec(allowInvalid: allowInvalid);
       case 'windows-1253':
-        return const Windows1253Codec(allowInvalid: true);
+        return Windows1253Codec(allowInvalid: allowInvalid);
       case 'windows-1254':
-        return const Windows1254Codec(allowInvalid: true);
+        return Windows1254Codec(allowInvalid: allowInvalid);
       case 'windows-1256':
-        return const Windows1256Codec(allowInvalid: true);
+        return Windows1256Codec(allowInvalid: allowInvalid);
       case 'cp850':
-        return const CodePage850Codec(allowInvalid: true);
+        return CodePage850Codec(allowInvalid: allowInvalid);
       case 'koi8-r':
-        return const Koi8rCodec(allowInvalid: true);
+        return Koi8rCodec(allowInvalid: allowInvalid);
       case 'koi8-u':
-        return const Koi8uCodec(allowInvalid: true);
+        return Koi8uCodec(allowInvalid: allowInvalid);
       case 'gbk':
-        return const GbkCodec(allowInvalid: true);
+        return GbkCodec(allowInvalid: allowInvalid);
       case 'gb18030':
-        return const Gb18030Codec(allowInvalid: true);
+        return Gb18030Codec(allowInvalid: allowInvalid);
       case 'big5':
-        return const Big5Codec(allowInvalid: true);
+        return Big5Codec(allowInvalid: allowInvalid);
       case 'shift_jis':
-        return const ShiftJisCodec(allowInvalid: true);
+        return ShiftJisCodec(allowInvalid: allowInvalid);
       case 'euc-jp':
-        return const EucJpCodec(allowInvalid: true);
+        return EucJpCodec(allowInvalid: allowInvalid);
       case 'euc-kr':
-        return const EucKrCodec(allowInvalid: true);
+        return EucKrCodec(allowInvalid: allowInvalid);
       case 'iso-2022-jp':
-        return const Iso2022JpCodec(allowInvalid: true);
+        return Iso2022JpCodec(allowInvalid: allowInvalid);
     }
     final pythonName = generatedSingleByteCodecNames[canonicalName];
     return pythonName == null
         ? null
-        : generatedSingleByteCodec(pythonName, allowInvalid: true);
+        : generatedSingleByteCodec(pythonName, allowInvalid: allowInvalid);
   }
 
   static _CharsetResolution _resolveCharset(
@@ -204,12 +252,7 @@ abstract class MailCodec {
     final normalized = _normalizeCharsetLabel(name);
     final safeLabel = _sanitizeCharsetLabel(normalized);
 
-    CharsetDiagnosticKind? failureKind;
-    if (knownBlockedCharsetLabels.contains(normalized)) {
-      failureKind = CharsetDiagnosticKind.blocked;
-    } else if (knownUnsupportedCharsetLabels.contains(normalized)) {
-      failureKind = CharsetDiagnosticKind.unsupported;
-    }
+    final failureKind = _failureKindForLabel(normalized);
     if (failureKind != null) {
       _emitCharsetDiagnostic(
         kind: failureKind,
@@ -229,8 +272,12 @@ abstract class MailCodec {
     }
     canonicalName ??=
         _separatorFoldedCharsetLabels[_foldCharsetSeparators(lookupLabel)];
-    final codec =
-        canonicalName == null ? null : _codecForCanonicalName(canonicalName);
+    final codec = canonicalName == null
+        ? null
+        : _codecForCanonicalName(canonicalName, allowInvalid: false);
+    final lenientCodec = canonicalName == null
+        ? null
+        : _codecForCanonicalName(canonicalName, allowInvalid: true);
     if (codec == null) {
       _emitCharsetDiagnostic(
         kind: CharsetDiagnosticKind.unknown,
@@ -248,6 +295,7 @@ abstract class MailCodec {
       label: safeLabel,
       canonicalName: canonicalName,
       codec: codec,
+      lenientCodec: lenientCodec,
     );
   }
 
@@ -276,30 +324,36 @@ abstract class MailCodec {
     String fallback,
   ) {
     final codec = resolution.codec;
-    if (codec == null) {
+    final lenientCodec = resolution.lenientCodec;
+    if (codec == null || lenientCodec == null) {
       return fallback;
+    }
+    if (charsetDiagnosticHandler == null) {
+      return decode(lenientCodec);
     }
     try {
       final decoded = decode(codec);
-      final replacementCount = '�'.allMatches(decoded).length;
       _emitCharsetDiagnostic(
-        kind: replacementCount == 0
-            ? CharsetDiagnosticKind.supported
-            : CharsetDiagnosticKind.decodeFailure,
+        kind: CharsetDiagnosticKind.supported,
         source: source,
         label: resolution.label,
         canonicalName: resolution.canonicalName,
-        replacementCount: replacementCount,
       );
       return decoded;
     } on FormatException {
+      String decoded;
+      try {
+        decoded = decode(lenientCodec);
+      } on FormatException {
+        decoded = fallback;
+      }
       _emitCharsetDiagnostic(
         kind: CharsetDiagnosticKind.decodeFailure,
         source: source,
         label: resolution.label,
         canonicalName: resolution.canonicalName,
       );
-      return fallback;
+      return decoded;
     }
   }
 
@@ -437,20 +491,21 @@ abstract class MailCodec {
         characterEncodingName,
         CharsetDiagnosticSource.header,
       );
+      if (match != null && match.start > 0) {
+        buffer.write(reminder.substring(0, match.start));
+      }
       if (resolution.codec == null) {
-        buffer.write(reminder);
-
-        return;
+        // Preserve only this encoded word, then continue so a later valid word
+        // in the same header can still be decoded.
+        buffer.write(sequence);
+        reminder = reminder.substring(match?.end ?? 0);
+        continue;
       }
       final decoder = _textDecodersByName[decoderName];
       if (decoder == null) {
-        print('Error: no decoder found for [$decoderName].');
-        buffer.write(reminder);
-
-        return;
-      }
-      if (match != null && match.start > 0) {
-        buffer.write(reminder.substring(0, match.start));
+        buffer.write(sequence);
+        reminder = reminder.substring(match?.end ?? 0);
+        continue;
       }
       final contentStartIndex = separatorIndex + 3;
       final part = sequence.substring(

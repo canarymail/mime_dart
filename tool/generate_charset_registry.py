@@ -24,6 +24,18 @@ from pathlib import Path
 
 
 WHATWG_ENCODINGS_URL = "https://encoding.spec.whatwg.org/encodings.json"
+EXPECTED_WHATWG_SHA256 = (
+    "078212b3697f60b81225b6671bd9da2604497abff0aa8e96e4d46605c02ac9e7"
+)
+EXPECTED_PYTHON_VERSION = (3, 14, 6)
+
+GENERIC_UTF16_LABELS = {
+    "csunicode",
+    "iso-10646-ucs-2",
+    "ucs-2",
+    "unicode",
+    "utf-16",
+}
 
 # WHATWG intentionally excludes ASCII-incompatible legacy encodings. Generate
 # their codec implementations in mime_convert, but do not silently activate
@@ -77,8 +89,59 @@ PYTHON_CANONICAL_OVERRIDES = {
     "tis_620": "windows-874",
     "utf_8": "utf-8",
     "utf_8_sig": "utf-8-sig",
+    "utf_16": "utf-16",
     "utf_16_be": "utf-16be",
     "utf_16_le": "utf-16le",
+}
+
+# Canonical names implemented by explicit MailCodec switch cases. Generated
+# single-byte fallbacks must never claim these names: doing so previously left
+# a latent windows-1252 -> strict Latin-1 mapping in the generated registry.
+EXPLICIT_CODEC_CANONICALS = {
+    "big5",
+    "cp850",
+    "euc-jp",
+    "euc-kr",
+    "gb18030",
+    "gbk",
+    "iso-2022-jp",
+    "iso-8859-2",
+    "iso-8859-3",
+    "iso-8859-4",
+    "iso-8859-5",
+    "iso-8859-6",
+    "iso-8859-7",
+    "iso-8859-8",
+    "iso-8859-8-i",
+    "iso-8859-10",
+    "iso-8859-13",
+    "iso-8859-14",
+    "iso-8859-15",
+    "iso-8859-16",
+    "koi8-r",
+    "koi8-u",
+    "shift_jis",
+    "utf-8",
+    "utf-8-sig",
+    "utf-16",
+    "utf-16be",
+    "utf-16le",
+    "windows-1250",
+    "windows-1251",
+    "windows-1252",
+    "windows-1253",
+    "windows-1254",
+    "windows-1256",
+}
+
+PREFERRED_GENERATED_CANONICALS = {
+    "ibm866": "cp866",
+    "macintosh": "mac_roman",
+    "windows-1255": "cp1255",
+    "windows-1257": "cp1257",
+    "windows-1258": "cp1258",
+    "windows-874": "cp874",
+    "x-mac-cyrillic": "mac_cyrillic",
 }
 
 KNOWN_BLOCKED_LABELS = {
@@ -143,7 +206,24 @@ def _load_whatwg(source: Path | None) -> tuple[bytes, list[dict]]:
     else:
         with urllib.request.urlopen(WHATWG_ENCODINGS_URL) as response:
             raw = response.read()
+    digest = hashlib.sha256(raw).hexdigest()
+    if digest != EXPECTED_WHATWG_SHA256:
+        raise ValueError(
+            f"WHATWG encodings.json SHA-256 {digest} does not match reviewed "
+            f"digest {EXPECTED_WHATWG_SHA256}"
+        )
     return raw, json.loads(raw)
+
+
+def _require_python_version() -> None:
+    actual = sys.version_info[:3]
+    if actual != EXPECTED_PYTHON_VERSION:
+        expected = ".".join(str(part) for part in EXPECTED_PYTHON_VERSION)
+        found = ".".join(str(part) for part in actual)
+        raise SystemExit(
+            f"Python {expected} is required for deterministic alias generation; "
+            f"found {found}"
+        )
 
 
 def generate(source: Path | None, output: Path) -> None:
@@ -156,16 +236,21 @@ def generate(source: Path | None, output: Path) -> None:
     unsupported: set[str] = set()
     for group in groups:
         for encoding in group["encodings"]:
-            canonical = encoding["name"].lower()
+            encoding_canonical = encoding["name"].lower()
             labels = {label.lower() for label in encoding["labels"]}
-            if canonical == "replacement":
+            if encoding_canonical == "replacement":
                 replacement_labels.update(labels)
                 blocked.update(labels)
                 continue
-            if canonical == "x-user-defined":
+            if encoding_canonical == "x-user-defined":
                 unsupported.update(labels)
                 continue
             for label in labels:
+                canonical = (
+                    "utf-16"
+                    if label in GENERIC_UTF16_LABELS
+                    else encoding_canonical
+                )
                 previous = whatwg_labels.setdefault(label, canonical)
                 if previous != canonical:
                     raise ValueError(
@@ -207,18 +292,18 @@ def generate(source: Path | None, output: Path) -> None:
     generated_codec_names: dict[str, str] = {}
     for python_name in sorted(supported_python - EXISTING_PYTHON_SINGLE_BYTE):
         canonical = canonical_by_python[python_name]
-        generated_codec_names.setdefault(canonical, python_name)
-    generated_codec_names.update(
-        {
-            "ibm866": "cp866",
-            "macintosh": "mac_roman",
-            "windows-1255": "cp1255",
-            "windows-1257": "cp1257",
-            "windows-1258": "cp1258",
-            "windows-874": "cp874",
-            "x-mac-cyrillic": "mac_cyrillic",
-        }
-    )
+        if canonical in EXPLICIT_CODEC_CANONICALS:
+            continue
+        preferred = PREFERRED_GENERATED_CANONICALS.get(canonical)
+        if preferred is not None and python_name != preferred:
+            continue
+        previous = generated_codec_names.setdefault(canonical, python_name)
+        if previous != python_name:
+            raise ValueError(
+                f"generated codec collision for {canonical}: "
+                f"{previous} != {python_name}"
+            )
+    generated_codec_names.update(PREFERRED_GENERATED_CANONICALS)
 
     contents = f"""// GENERATED CODE - DO NOT EDIT.
 // ignore_for_file: lines_longer_than_80_chars, public_member_api_docs
@@ -246,6 +331,7 @@ def generate(source: Path | None, output: Path) -> None:
 
 
 def main() -> None:
+    _require_python_version()
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--source",
@@ -263,7 +349,18 @@ def main() -> None:
         action="store_true",
         help="Fail if the checked-in registry differs from generated output",
     )
+    parser.add_argument(
+        "--refresh",
+        action="store_true",
+        help="refresh the vendored source after its reviewed digest is updated",
+    )
     args = parser.parse_args()
+    if args.refresh:
+        if args.check:
+            parser.error("--refresh and --check are mutually exclusive")
+        raw, _ = _load_whatwg(None)
+        args.source.parent.mkdir(parents=True, exist_ok=True)
+        args.source.write_bytes(raw)
     if not args.check:
         generate(args.source, args.output)
         return

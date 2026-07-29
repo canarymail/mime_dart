@@ -112,6 +112,14 @@ void main() {
       expect(MailCodec.decodeHeader(input), '');
     });
 
+    test('continues after an encoded word with an unknown charset', () {
+      const input = '=?unknown-charset?Q?raw?= =?utf-8?Q?later_=E2=82=AC?=';
+      expect(
+        MailCodec.decodeHeader(input),
+        '=?unknown-charset?Q?raw?= later €',
+      );
+    });
+
     test('decode header with tab between decoded words', () {
       const input =
           '=?UTF-8?B?RWluZSB3aWNodGlnZSBJbmZvcm1hdGlvbiB6dSBkZWluZXIgTEU=?=	=?UTF-8?B?R0/CriBCZXN0ZWxsdW5nIQ==?=';

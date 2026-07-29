@@ -40,6 +40,27 @@ void main() {
     expect(pythonMimeCharsetAliases['utf-8-sig'], 'utf-8-sig');
   });
 
+  test('generic UTF-16 labels retain BOM-aware canonical routing', () {
+    for (final label in [
+      'utf-16',
+      'unicode',
+      'ucs-2',
+      'csunicode',
+      'iso-10646-ucs-2',
+    ]) {
+      expect(whatwgCharsetLabels[label], 'utf-16');
+    }
+    expect(whatwgCharsetLabels['utf-16le'], 'utf-16le');
+    expect(whatwgCharsetLabels['utf-16be'], 'utf-16be');
+  });
+
+  test('generated fallbacks never shadow explicit canonical codecs', () {
+    expect(
+      generatedSingleByteCodecNames.keys,
+      isNot(contains('windows-1252')),
+    );
+  });
+
   test('ASCII-incompatible Python extras are not activated for mail', () {
     for (final label in [
       'cp037',

@@ -211,13 +211,10 @@ class QuotedPrintableMailCodec extends MailCodec {
             charCodes.add(charCode);
           }
 
-          try {
-            final decoded = codec.decode(charCodes);
-            buffer.write(decoded);
-          } on FormatException catch (err) {
-            print('unable to decode quotedPrintable buffer: ${err.message}');
-            buffer.write(String.fromCharCodes(charCodes));
-          }
+          // Let strict charset failures reach MailCodec's diagnostic wrapper.
+          // It will retry this complete transfer-decoding operation with the
+          // corresponding replacement-mode codec.
+          buffer.write(codec.decode(charCodes));
         }
         i += 2;
       } else if (isHeader && char == '_') {
