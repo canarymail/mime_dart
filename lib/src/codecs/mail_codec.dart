@@ -6,6 +6,8 @@ import 'package:mime_convert/mime_convert.dart';
 import '../mail_conventions.dart';
 import '../private/util/ascii_runes.dart';
 import 'base64_mail_codec.dart';
+import 'charset_diagnostic.dart';
+import 'generated_charset_registry.dart';
 import 'quoted_printable_mail_codec.dart';
 
 /// The used header encoding mechanism
@@ -20,6 +22,20 @@ enum HeaderEncoding {
   none
 }
 
+class _CharsetResolution {
+  const _CharsetResolution({
+    required this.label,
+    this.canonicalName,
+    this.codec,
+    this.failureKind,
+  });
+
+  final String label;
+  final String? canonicalName;
+  final convert.Encoding? codec;
+  final CharsetDiagnosticKind? failureKind;
+}
+
 /// Encodes and decodes base-64 and quoted printable encoded texts
 ///
 /// Compare https://tools.ietf.org/html/rfc2045#page-19
@@ -27,6 +43,13 @@ enum HeaderEncoding {
 abstract class MailCodec {
   /// Creates a new mail codec
   const MailCodec();
+
+  /// Receives content-free charset resolution and decoding diagnostics.
+  ///
+  /// The handler is isolate-local. Applications parsing in background
+  /// isolates should install a handler in each isolate and forward the
+  /// diagnostic's scalar [CharsetDiagnostic.toMap] representation.
+  static CharsetDiagnosticHandler? charsetDiagnosticHandler;
 
   /// No transfer encoding
   static const String contentTransferEncodingNone = 'none';
@@ -46,200 +69,240 @@ abstract class MailCodec {
 
   /// ASCII encoding
   static const encodingAscii = convert.AsciiCodec(allowInvalid: true);
-  static final _charsetCodecsByName = <String, convert.Encoding Function()>{
-    'utf-8': () => encodingUtf8,
-    'utf8': () => encodingUtf8,
-    'latin-1': () => encodingLatin1,
-    'iso-8859-1': () => encodingLatin1,
-    'iso8859-1': () => encodingLatin1,
-    'iso-8859-2': () => const Latin2Codec(allowInvalid: true),
-    'iso8859-2': () => const Latin2Codec(allowInvalid: true),
-    'iso-8859-3': () => const Latin3Codec(allowInvalid: true),
-    'iso8859-3': () => const Latin3Codec(allowInvalid: true),
-    'iso-8859-4': () => const Latin4Codec(allowInvalid: true),
-    'iso8859-4': () => const Latin4Codec(allowInvalid: true),
-    'iso-8859-5': () => const Latin5Codec(allowInvalid: true),
-    'iso8859-5': () => const Latin5Codec(allowInvalid: true),
-    'iso-8859-6': () => const Latin6Codec(allowInvalid: true),
-    'iso8859-6': () => const Latin6Codec(allowInvalid: true),
-    'iso-8859-7': () => const Latin7Codec(allowInvalid: true),
-    'iso8859-7': () => const Latin7Codec(allowInvalid: true),
-    'iso-8859-8': () => const Latin8Codec(allowInvalid: true),
-    'iso8859-8': () => const Latin8Codec(allowInvalid: true),
-    'iso-8859-9': () => const Latin9Codec(allowInvalid: true),
-    'iso8859-9': () => const Latin9Codec(allowInvalid: true),
-    'iso-8859-10': () => const Latin10Codec(allowInvalid: true),
-    'iso8859-10': () => const Latin10Codec(allowInvalid: true),
-    'iso-8859-11': () => const Latin11Codec(allowInvalid: true),
-    'iso8859-11': () => const Latin11Codec(allowInvalid: true),
-    // iso-8859-12 does not exist...
-    'iso-8859-13': () => const Latin13Codec(allowInvalid: true),
-    'iso8859-13': () => const Latin13Codec(allowInvalid: true),
-    'iso-8859-14': () => const Latin14Codec(allowInvalid: true),
-    'iso8859-14': () => const Latin14Codec(allowInvalid: true),
-    'iso-8859-15': () => const Latin15Codec(allowInvalid: true),
-    'iso8859-15': () => const Latin15Codec(allowInvalid: true),
-    'iso-8859-16': () => const Latin16Codec(allowInvalid: true),
-    'iso8859-16': () => const Latin16Codec(allowInvalid: true),
-    'windows-1250': () => const Windows1250Codec(allowInvalid: true),
-    'cp1250': () => const Windows1250Codec(allowInvalid: true),
-    'cp-1250': () => const Windows1250Codec(allowInvalid: true),
-    'windows-1251': () => const Windows1251Codec(allowInvalid: true),
-    'cp1251': () => const Windows1251Codec(allowInvalid: true),
-    'windows-1252': () => const Windows1252Codec(allowInvalid: true),
-    'cp1252': () => const Windows1252Codec(allowInvalid: true),
-    'cp-1252': () => const Windows1252Codec(allowInvalid: true),
-    'windows-1253': () => const Windows1253Codec(allowInvalid: true),
-    'cp1253': () => const Windows1253Codec(allowInvalid: true),
-    'cp-1253': () => const Windows1253Codec(allowInvalid: true),
-    'windows-1254': () => const Windows1254Codec(allowInvalid: true),
-    'cp1254': () => const Windows1254Codec(allowInvalid: true),
-    'cp-1254': () => const Windows1254Codec(allowInvalid: true),
-    'windows-1256': () => const Windows1256Codec(allowInvalid: true),
-    'cp1256': () => const Windows1256Codec(allowInvalid: true),
-    'cp-1256': () => const Windows1256Codec(allowInvalid: true),
-    'gbk': () => const GbkCodec(allowInvalid: true),
-    'gb2312': () => const GbkCodec(allowInvalid: true),
-    'gb-2312': () => const GbkCodec(allowInvalid: true),
-    'cp-936': () => const GbkCodec(allowInvalid: true),
-    'windows-936': () => const GbkCodec(allowInvalid: true),
-    'gb18030': () => const GbkCodec(allowInvalid: true),
-    'chinese': () => const GbkCodec(allowInvalid: true),
-    'csgb2312': () => const GbkCodec(allowInvalid: true),
-    'csgb231280': () => const GbkCodec(allowInvalid: true),
-    'csiso58gb231280': () => const GbkCodec(allowInvalid: true),
-    'iso-ir-58': () => const GbkCodec(allowInvalid: true),
-    'x-mac-chinesesimp': () => const GbkCodec(allowInvalid: true),
-    'big5': () => const Big5Codec(allowInvalid: true),
-    'big-5': () => const Big5Codec(allowInvalid: true),
-    'koi8': () => const Koi8rCodec(allowInvalid: true),
-    'koi8-r': () => const Koi8rCodec(allowInvalid: true),
-    'koi8-u': () => const Koi8uCodec(allowInvalid: true),
-    'us-ascii': () => encodingAscii,
-    'ascii': () => encodingAscii,
-    // Japanese / Korean. Backed by the vendor supersets (Windows-31J and UHC)
-    // rather than the strict national standards, matching what the labels mean
-    // in practice — see mime_convert's tool/generate_cjk_tables.py.
-    'shift_jis': () => const ShiftJisCodec(allowInvalid: true),
-    'euc-jp': () => const EucJpCodec(allowInvalid: true),
-    'euc-kr': () => const EucKrCodec(allowInvalid: true),
-  };
 
-  /// Alternative spellings for charsets already in [_charsetCodecsByName].
-  ///
-  /// Lookup normalisation (see [_normalizeCharsetName]) folds separators and
-  /// strips an `x-` prefix, which handles most variation mechanically. This map
-  /// covers the rest — names that share no common stem with their canonical
-  /// form, such as `csshiftjis` or `latin1`.
-  ///
-  /// Sourced from the WHATWG Encoding Standard's label list and Python's
-  /// `encodings.aliases`, which between them cover what appears in real mail.
-  static const _charsetAliases = <String, String>{
-    // Japanese
-    'sjis': 'shift_jis',
-    'shift-jis': 'shift_jis',
-    'ms_kanji': 'shift_jis',
-    'csshiftjis': 'shift_jis',
-    'windows-31j': 'shift_jis',
-    'cp932': 'shift_jis',
-    'ms932': 'shift_jis',
-    'eucjp': 'euc-jp',
-    'ujis': 'euc-jp',
-    'cseucpkdfmtjapanese': 'euc-jp',
-    // Korean
-    'euckr': 'euc-kr',
-    'cseuckr': 'euc-kr',
-    'ks_c_5601-1987': 'euc-kr',
-    'ks_c_5601-1989': 'euc-kr',
-    'ksc5601': 'euc-kr',
-    'korean': 'euc-kr',
-    'cp949': 'euc-kr',
-    'uhc': 'euc-kr',
-    // Latin — already supported, but these spellings previously missed.
-    'latin1': 'iso-8859-1',
-    'l1': 'iso-8859-1',
-    'iso_8859-1': 'iso-8859-1',
-    'iso-ir-100': 'iso-8859-1',
-    'csisolatin1': 'iso-8859-1',
-    'cp819': 'iso-8859-1',
-    'ibm819': 'iso-8859-1',
-    'latin2': 'iso-8859-2',
-    'iso_8859-2': 'iso-8859-2',
-    'csisolatin2': 'iso-8859-2',
-    'latin9': 'iso-8859-15',
-    'iso_8859-15': 'iso-8859-15',
-    // Cyrillic / Greek / Hebrew spellings seen in the wild.
-    'cskoi8r': 'koi8-r',
-    'cp1251': 'windows-1251',
-    'cp-1251': 'windows-1251',
-    'utf8': 'utf-8',
-    'utf_8': 'utf-8',
-    'unicode-1-1-utf-8': 'utf-8',
-  };
+  static final Map<String, String> _separatorFoldedCharsetLabels =
+      _buildSeparatorFoldedCharsetLabels();
 
-  /// Canonicalise a charset label before looking it up.
-  ///
-  /// Charset names arrive with wide variation: case, `_` versus `-`, an `x-`
-  /// vendor prefix, surrounding whitespace, and an RFC 2231 `*language` suffix
-  /// on encoded words. Previously the only normalisation was `toLowerCase()`,
-  /// so `Shift_JIS` resolved but `shift-jis`, `sjis`, `x-sjis` and `csShiftJIS`
-  /// all missed — and so did `latin1` and `csisolatin1`, for charsets this
-  /// package has always supported.
-  static String _normalizeCharsetName(String name) {
+  static Map<String, String> _buildSeparatorFoldedCharsetLabels() {
+    final result = <String, String>{};
+    final collisions = <String>{};
+    for (final entries in [
+      whatwgCharsetLabels.entries,
+      pythonMimeCharsetAliases.entries,
+    ]) {
+      for (final entry in entries) {
+        final folded = _foldCharsetSeparators(entry.key);
+        final previous = result[folded];
+        if (previous == null || previous == entry.value) {
+          result[folded] = entry.value;
+        } else {
+          collisions.add(folded);
+        }
+      }
+    }
+    collisions.forEach(result.remove);
+    return result;
+  }
+
+  static String _foldCharsetSeparators(String value) =>
+      value.replaceAll(RegExp(r'[ _-]'), '');
+
+  static String _normalizeCharsetLabel(String name) {
     var normalized = name.trim().toLowerCase();
-
-    // RFC 2231 allows `charset*language` inside an encoded word.
+    if (normalized.length > 1 &&
+        normalized.startsWith('"') &&
+        normalized.endsWith('"')) {
+      normalized = normalized.substring(1, normalized.length - 1).trim();
+    }
     final star = normalized.indexOf('*');
     if (star > 0) {
       normalized = normalized.substring(0, star);
     }
-
-    // Strip surrounding quotes a caller may have left on.
-    if (normalized.length > 1 &&
-        normalized.startsWith('"') &&
-        normalized.endsWith('"')) {
-      normalized = normalized.substring(1, normalized.length - 1);
-    }
-
-    if (_charsetCodecsByName.containsKey(normalized)) {
-      return normalized;
-    }
-
-    final direct = _charsetAliases[normalized];
-    if (direct != null) {
-      return direct;
-    }
-
-    // `x-` marks a vendor/experimental name; the remainder is usually the
-    // real label (x-sjis, x-euc-jp, x-mac-chinesesimp).
-    var stem = normalized;
-    if (stem.startsWith('x-')) {
-      stem = stem.substring(2);
-      if (_charsetCodecsByName.containsKey(stem)) {
-        return stem;
-      }
-      final aliased = _charsetAliases[stem];
-      if (aliased != null) {
-        return aliased;
-      }
-    }
-
-    // Fold separators: iso_8859-1 / iso88591 / shift-jis all reach their
-    // canonical spelling this way without needing an entry each.
-    final squashed = stem.replaceAll(RegExp('[ _-]'), '');
-    for (final candidate in _charsetCodecsByName.keys) {
-      if (candidate.replaceAll(RegExp('[ _-]'), '') == squashed) {
-        return candidate;
-      }
-    }
-    for (final entry in _charsetAliases.entries) {
-      if (entry.key.replaceAll(RegExp('[ _-]'), '') == squashed) {
-        return entry.value;
-      }
-    }
-
     return normalized;
   }
+
+  static String _sanitizeCharsetLabel(String label) {
+    final buffer = StringBuffer();
+    for (final rune in label.runes) {
+      if (buffer.length >= 80) {
+        break;
+      }
+      buffer
+          .write(rune < 0x20 || rune == 0x7F ? '?' : String.fromCharCode(rune));
+    }
+    return buffer.toString();
+  }
+
+  static convert.Encoding? _codecForCanonicalName(String canonicalName) {
+    switch (canonicalName) {
+      case 'utf-8':
+        return encodingUtf8;
+      case 'utf-8-sig':
+        return const Utf8SigCodec(allowInvalid: true);
+      case 'utf-16le':
+        return const Utf16LeCodec(allowInvalid: true);
+      case 'utf-16be':
+        return const Utf16BeCodec(allowInvalid: true);
+      case 'iso-8859-2':
+        return const Latin2Codec(allowInvalid: true);
+      case 'iso-8859-3':
+        return const Latin3Codec(allowInvalid: true);
+      case 'iso-8859-4':
+        return const Latin4Codec(allowInvalid: true);
+      case 'iso-8859-5':
+        return const Latin5Codec(allowInvalid: true);
+      case 'iso-8859-6':
+        return const Latin6Codec(allowInvalid: true);
+      case 'iso-8859-7':
+        return const Latin7Codec(allowInvalid: true);
+      case 'iso-8859-8':
+      case 'iso-8859-8-i':
+        return const Latin8Codec(allowInvalid: true);
+      case 'iso-8859-10':
+        return const Latin10Codec(allowInvalid: true);
+      case 'iso-8859-13':
+        return const Latin13Codec(allowInvalid: true);
+      case 'iso-8859-14':
+        return const Latin14Codec(allowInvalid: true);
+      case 'iso-8859-15':
+        return const Latin15Codec(allowInvalid: true);
+      case 'iso-8859-16':
+        return const Latin16Codec(allowInvalid: true);
+      case 'windows-1250':
+        return const Windows1250Codec(allowInvalid: true);
+      case 'windows-1251':
+        return const Windows1251Codec(allowInvalid: true);
+      case 'windows-1252':
+        return const Windows1252Codec(allowInvalid: true);
+      case 'windows-1253':
+        return const Windows1253Codec(allowInvalid: true);
+      case 'windows-1254':
+        return const Windows1254Codec(allowInvalid: true);
+      case 'windows-1256':
+        return const Windows1256Codec(allowInvalid: true);
+      case 'cp850':
+        return const CodePage850Codec(allowInvalid: true);
+      case 'koi8-r':
+        return const Koi8rCodec(allowInvalid: true);
+      case 'koi8-u':
+        return const Koi8uCodec(allowInvalid: true);
+      case 'gbk':
+        return const GbkCodec(allowInvalid: true);
+      case 'gb18030':
+        return const Gb18030Codec(allowInvalid: true);
+      case 'big5':
+        return const Big5Codec(allowInvalid: true);
+      case 'shift_jis':
+        return const ShiftJisCodec(allowInvalid: true);
+      case 'euc-jp':
+        return const EucJpCodec(allowInvalid: true);
+      case 'euc-kr':
+        return const EucKrCodec(allowInvalid: true);
+      case 'iso-2022-jp':
+        return const Iso2022JpCodec(allowInvalid: true);
+    }
+    final pythonName = generatedSingleByteCodecNames[canonicalName];
+    return pythonName == null
+        ? null
+        : generatedSingleByteCodec(pythonName, allowInvalid: true);
+  }
+
+  static _CharsetResolution _resolveCharset(
+    String name,
+    CharsetDiagnosticSource source,
+  ) {
+    final normalized = _normalizeCharsetLabel(name);
+    final safeLabel = _sanitizeCharsetLabel(normalized);
+
+    CharsetDiagnosticKind? failureKind;
+    if (knownBlockedCharsetLabels.contains(normalized)) {
+      failureKind = CharsetDiagnosticKind.blocked;
+    } else if (knownUnsupportedCharsetLabels.contains(normalized)) {
+      failureKind = CharsetDiagnosticKind.unsupported;
+    }
+    if (failureKind != null) {
+      _emitCharsetDiagnostic(
+        kind: failureKind,
+        source: source,
+        label: safeLabel,
+      );
+      return _CharsetResolution(label: safeLabel, failureKind: failureKind);
+    }
+
+    var lookupLabel = normalized;
+    var canonicalName = whatwgCharsetLabels[lookupLabel] ??
+        pythonMimeCharsetAliases[lookupLabel];
+    if (canonicalName == null && lookupLabel.startsWith('x-')) {
+      lookupLabel = lookupLabel.substring(2);
+      canonicalName = whatwgCharsetLabels[lookupLabel] ??
+          pythonMimeCharsetAliases[lookupLabel];
+    }
+    canonicalName ??=
+        _separatorFoldedCharsetLabels[_foldCharsetSeparators(lookupLabel)];
+    final codec =
+        canonicalName == null ? null : _codecForCanonicalName(canonicalName);
+    if (codec == null) {
+      _emitCharsetDiagnostic(
+        kind: CharsetDiagnosticKind.unknown,
+        source: source,
+        label: safeLabel,
+        canonicalName: canonicalName,
+      );
+      return _CharsetResolution(
+        label: safeLabel,
+        canonicalName: canonicalName,
+        failureKind: CharsetDiagnosticKind.unknown,
+      );
+    }
+    return _CharsetResolution(
+      label: safeLabel,
+      canonicalName: canonicalName,
+      codec: codec,
+    );
+  }
+
+  static void _emitCharsetDiagnostic({
+    required CharsetDiagnosticKind kind,
+    required CharsetDiagnosticSource source,
+    required String label,
+    String? canonicalName,
+    int replacementCount = 0,
+  }) {
+    charsetDiagnosticHandler?.call(
+      CharsetDiagnostic(
+        kind: kind,
+        source: source,
+        label: label,
+        canonicalName: canonicalName,
+        replacementCount: replacementCount,
+      ),
+    );
+  }
+
+  static String _decodeWithCharsetDiagnostic(
+    _CharsetResolution resolution,
+    CharsetDiagnosticSource source,
+    String Function(convert.Encoding codec) decode,
+    String fallback,
+  ) {
+    final codec = resolution.codec;
+    if (codec == null) {
+      return fallback;
+    }
+    try {
+      final decoded = decode(codec);
+      final replacementCount = '�'.allMatches(decoded).length;
+      _emitCharsetDiagnostic(
+        kind: replacementCount == 0
+            ? CharsetDiagnosticKind.supported
+            : CharsetDiagnosticKind.decodeFailure,
+        source: source,
+        label: resolution.label,
+        canonicalName: resolution.canonicalName,
+        replacementCount: replacementCount,
+      );
+      return decoded;
+    } on FormatException {
+      _emitCharsetDiagnostic(
+        kind: CharsetDiagnosticKind.decodeFailure,
+        source: source,
+        label: resolution.label,
+        canonicalName: resolution.canonicalName,
+      );
+      return fallback;
+    }
+  }
+
   static final _textDecodersByName = <String,
       String Function(
     String text,
@@ -370,11 +433,11 @@ abstract class MailCodec {
           .substring(separatorIndex + 1, separatorIndex + 2)
           .toLowerCase();
 
-      final codec =
-          _charsetCodecsByName[_normalizeCharsetName(characterEncodingName)]
-              ?.call();
-      if (codec == null) {
-        print('Error: no encoding found for [$characterEncodingName].');
+      final resolution = _resolveCharset(
+        characterEncodingName,
+        CharsetDiagnosticSource.header,
+      );
+      if (resolution.codec == null) {
         buffer.write(reminder);
 
         return;
@@ -394,7 +457,12 @@ abstract class MailCodec {
         contentStartIndex,
         sequence.length - _encodingEndSequence.length,
       );
-      final decoded = decoder(part, codec, isHeader: true);
+      final decoded = _decodeWithCharsetDiagnostic(
+        resolution,
+        CharsetDiagnosticSource.header,
+        (codec) => decoder(part, codec, isHeader: true),
+        sequence,
+      );
       buffer.write(decoded);
       reminder = reminder.substring(match?.end ?? 0);
     }
@@ -465,16 +533,16 @@ abstract class MailCodec {
         transferEncodingLC == '7bit' ||
         transferEncodingLC == 'binary') {
       final cs = charset ?? 'utf8';
-      final codec =
-          _charsetCodecsByName[_normalizeCharsetName(cs)]?.call();
-      if (codec == null) {
-        print('Error: no encoding found for charset [$cs].');
-
+      final resolution = _resolveCharset(cs, CharsetDiagnosticSource.body);
+      if (resolution.codec == null) {
         return encodingUtf8.decode(data, allowMalformed: true);
       }
-      final decodedText = codec.decode(data);
-
-      return decodedText;
+      return _decodeWithCharsetDiagnostic(
+        resolution,
+        CharsetDiagnosticSource.body,
+        (codec) => codec.decode(data),
+        encodingUtf8.decode(data, allowMalformed: true),
+      );
     }
     final text = String.fromCharCodes(data);
 
@@ -496,14 +564,17 @@ abstract class MailCodec {
       return text;
     }
     final cs = charset ?? 'utf8';
-    final codec = _charsetCodecsByName[_normalizeCharsetName(cs)]?.call();
-    if (codec == null) {
-      print('Error: no encoding found for charset [$cs].');
-
+    final resolution = _resolveCharset(cs, CharsetDiagnosticSource.body);
+    if (resolution.codec == null) {
       return text;
     }
 
-    return decoder(text, codec, isHeader: false);
+    return _decodeWithCharsetDiagnostic(
+      resolution,
+      CharsetDiagnosticSource.body,
+      (codec) => decoder(text, codec, isHeader: false),
+      text,
+    );
   }
 
   /// Decodes binary from the given text [part].
