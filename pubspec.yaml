@@ -28,10 +28,6 @@ dependencies:
   mime_convert:
     git:
       url: https://github.com/canarymail/mime_convert.git
-      # Pinned until add-cjk-codecs merges to main — without a ref this
-      # resolves the default branch, which has no CJK codecs, so the imports
-      # below would not compile. Drop the ref once merged.
-      ref: add-cjk-codecs
   intl: any
 
 dependency_overrides:
