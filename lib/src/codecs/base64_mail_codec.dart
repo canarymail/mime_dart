@@ -150,8 +150,46 @@ class Base64MailCodec extends MailCodec {
       cleaned = buffer.toString();
     }
 
-    return base64.decode(cleaned);
+    return base64.decode(_normalizeFinalQuantum(cleaned));
   }
+
+  /// Zeroes the bits that RFC 4648 requires to be zero in the final,
+  /// partially-filled base64 quantum.
+  ///
+  /// Some senders emit stray low bits before the padding, e.g. `Pj==` where
+  /// `Pg==` was meant. Dart's `base64.decode` rejects those with
+  /// `FormatException: Invalid encoding before padding`, while virtually every
+  /// other mail client simply ignores the extra bits. Without this the whole
+  /// body fails to decode and the raw base64 is shown to the user.
+  static String _normalizeFinalQuantum(final String cleaned) {
+    final length = cleaned.length;
+    if (length < 4 || length % 4 != 0 || !cleaned.endsWith('=')) {
+      return cleaned;
+    }
+    // '==' => 1 decoded byte from 2 chars, so the 2nd char keeps only 0x30.
+    // '='  => 2 decoded bytes from 3 chars, so the 3rd char keeps only 0x3C.
+    final isDoublePadding = cleaned.codeUnitAt(length - 2) == _padding;
+    final significantIndex = isDoublePadding ? length - 3 : length - 2;
+    final mask = isDoublePadding ? 0x30 : 0x3C;
+    final value = _alphabet.indexOf(cleaned[significantIndex]);
+    if (value < 0) {
+      return cleaned;
+    }
+    final normalized = value & mask;
+    if (normalized == value) {
+      return cleaned;
+    }
+
+    return cleaned.replaceRange(
+      significantIndex,
+      significantIndex + 1,
+      _alphabet[normalized],
+    );
+  }
+
+  static const _padding = 0x3D; // '='
+  static const _alphabet =
+      'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 
   @override
   String decodeText(String part, Encoding codec, {bool isHeader = false}) {

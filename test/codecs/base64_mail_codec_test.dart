@@ -24,6 +24,16 @@ void main() {
       );
     });
 
+    test('stray bits before padding are ignored', () {
+      // Some senders emit a final quantum with non-zero unused bits, e.g.
+      // 'Pj==' where 'Pg==' was meant. Strict decoders reject it; mail clients
+      // are expected to ignore the extra bits.
+      expect(MailCodec.base64.decodeText('Pj==', utf8), '>');
+      expect(MailCodec.base64.decodeText('Pg==', utf8), '>');
+      expect(MailCodec.base64.decodeText('YT9=', utf8), 'a?');
+      expect(MailCodec.base64.decodeText('YT8=', utf8), 'a?');
+    });
+
     test('encoding.US-ASCII.Base64', () {
       var input = '=?US-ASCII?B?S2VpdGggTW9vcmU?= <moore@cs.utk.edu>';
       expect(MailCodec.decodeHeader(input), 'Keith Moore <moore@cs.utk.edu>');
