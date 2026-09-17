@@ -1796,4 +1796,48 @@ Content-Description: S/MIME Cryptographic Signature\r
       );
     });
   });
+
+  group('non-canonical base64 body', () {
+    test('decodes a text/html part whose final quantum is malformed', () {
+      // Shaped like the WeWork mails from DOV-1326: the boundary parameter
+      // itself starts with '--', the text/plain alternative carries HTML
+      // source, and the base64 text/html part ends in 'Pn==' rather than the
+      // canonical 'Pg=='. Before the codec tolerated that, the failed decode
+      // fell back to the raw bytes and the body rendered as base64 text.
+      // The canonical encoding of inputHtml ends 'Pg=='; this ends 'Pn==',
+      // carrying the same trailing '>' byte with its discarded bits set.
+      const inputBase64Html =
+          'PGh0bWw+PGJvZHk+PHA+SGVsbG8hITwvcD48aW1nIHNyYz0ieCIgd2lkdGg9'
+          'IjEiLz48L2JvZHk+PC9odG1sPn==';
+      final inputLines = [
+        'MIME-Version: 1.0',
+        'From: WeWork <noreply@wework.com>',
+        'Subject: Action Required: Your WeWork Agreement',
+        'Content-Type: multipart/alternative;',
+        ' boundary=--boundary_1205_0b151ac2',
+        '',
+        '----boundary_1205_0b151ac2',
+        'Content-Type: text/plain; charset=us-ascii',
+        'Content-Transfer-Encoding: quoted-printable',
+        '',
+        '<p>Hello!!</p>',
+        '----boundary_1205_0b151ac2',
+        'Content-Type: text/html; charset=us-ascii',
+        'Content-Transfer-Encoding: base64',
+        '',
+        inputBase64Html,
+        '----boundary_1205_0b151ac2--',
+        '',
+      ];
+      final inputMessage = MimeMessage.parseFromText(
+        '${inputLines.join('\r\n')}\r\n',
+      );
+
+      expect(inputMessage.parts?.length, 2);
+      expect(
+        inputMessage.decodeTextHtmlPart(),
+        '<html><body><p>Hello!!</p><img src="x" width="1"/></body></html>',
+      );
+    });
+  });
 }

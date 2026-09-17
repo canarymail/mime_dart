@@ -12,6 +12,27 @@ class Base64MailCodec extends MailCodec {
   /// Creates a new base64 mail codec
   const Base64MailCodec();
 
+  static const String _base64Alphabet =
+      'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+
+  /// Marks a code unit that is not part of either base64 alphabet.
+  static const int _notBase64 = 0xFF;
+
+  /// Maps an ASCII code unit to its 6-bit value, accepting the URL-safe
+  /// alphabet alongside the standard one just as Dart's own decoder does.
+  static final Uint8List _inverseAlphabet = _buildInverseAlphabet();
+
+  static Uint8List _buildInverseAlphabet() {
+    final table = Uint8List(128)..fillRange(0, 128, _notBase64);
+    for (var i = 0; i < _base64Alphabet.length; i++) {
+      table[_base64Alphabet.codeUnitAt(i)] = i;
+    }
+    table[AsciiRunes.runeMinus] = 62;
+    table[AsciiRunes.runeUnderline] = 63;
+
+    return table;
+  }
+
   /// Encodes the specified text in base64 format.
   ///
   /// [text] specifies the text to be encoded.
@@ -150,8 +171,54 @@ class Base64MailCodec extends MailCodec {
       cleaned = buffer.toString();
     }
 
-    return base64.decode(cleaned);
+    try {
+      return base64.decode(cleaned);
+    } on FormatException {
+      // Dart's decoder is stricter than RFC 2045 requires. It rejects
+      // characters outside the alphabet, and a final quantum whose unused
+      // low bits are non-zero -- some senders emit 'Pn==' for '>' rather
+      // than the canonical 'Pg==' -- which the RFC says to discard. Repair
+      // those rather than losing the whole part.
+      return base64.decode(_canonicalize(cleaned));
+    }
   }
+
+  /// Rewrites [data] into canonical base64: characters outside the alphabet
+  /// are dropped, and the final quantum's discarded bits are zeroed.
+  String _canonicalize(String data) {
+    final buffer = StringBuffer();
+    for (var i = 0; i < data.length; i++) {
+      final value = _sixBitValue(data.codeUnitAt(i));
+      if (value != _notBase64) {
+        buffer.writeCharCode(_base64Alphabet.codeUnitAt(value));
+      }
+    }
+    final normalized = buffer.toString();
+    switch (normalized.length % 4) {
+      case 1:
+        // A lone trailing character cannot encode a byte.
+        return normalized.substring(0, normalized.length - 1);
+      case 2:
+        // 2 characters encode 1 byte, so the last 4 bits are discarded.
+        return '${_maskLast(normalized, 0x30)}==';
+      case 3:
+        // 3 characters encode 2 bytes, so the last 2 bits are discarded.
+        return '${_maskLast(normalized, 0x3C)}=';
+      default:
+        return normalized;
+    }
+  }
+
+  String _maskLast(String data, int mask) {
+    final masked = _sixBitValue(data.codeUnitAt(data.length - 1)) & mask;
+
+    return '${data.substring(0, data.length - 1)}'
+        '${_base64Alphabet[masked]}';
+  }
+
+  int _sixBitValue(int codeUnit) => codeUnit < _inverseAlphabet.length
+      ? _inverseAlphabet[codeUnit]
+      : _notBase64;
 
   @override
   String decodeText(String part, Encoding codec, {bool isHeader = false}) {

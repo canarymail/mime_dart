@@ -62,6 +62,37 @@ void main() {
     });
   });
 
+  group('Base64 decoding of non-canonical input', () {
+    test('final quantum with non-zero discarded bits', () {
+      // 'Pn==' carries the same byte as the canonical 'Pg==', but leaves the
+      // 4 unused low bits set. Senders in the wild (WeWork) emit this and
+      // RFC 2045 says to discard those bits rather than reject the data.
+      expect(MailCodec.base64.decodeText('Pn==', utf8), '>');
+      expect(MailCodec.base64.decodeText('Pg==', utf8), '>');
+    });
+
+    test('three character quantum with non-zero discarded bits', () {
+      // 'PDE' is canonical ('<1'); 'PDF' sets one of the 2 discarded bits.
+      expect(MailCodec.base64.decodeText('PDE=', utf8), '<1');
+      expect(MailCodec.base64.decodeText('PDF=', utf8), '<1');
+    });
+
+    test('characters outside the alphabet are ignored', () {
+      expect(
+        MailCodec.base64.decodeText('SGVs*bG8g\u0000V29ybGQ=', utf8),
+        'Hello World',
+      );
+    });
+
+    test('canonical input is unaffected', () {
+      expect(
+        MailCodec.base64.decodeText('SGVsbG8gV29ybGQ=', utf8),
+        'Hello World',
+      );
+      expect(MailCodec.base64.decodeText('8J+UkA', utf8), '🔐');
+    });
+  });
+
   group('Base64 encoding', () {
     test('encodeHeader.base64 with ASCII input', () {
       const input = 'Hello World';
