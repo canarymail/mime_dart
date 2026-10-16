@@ -98,15 +98,28 @@ class MailAddress {
     if (personalName == null || hasNoPersonalName) {
       return email;
     }
-    final buffer = StringBuffer()
-      ..write('"')
-      ..write(
-        MailCodec.quotedPrintable.encodeHeader(
-          personalName.trim(),
-          fromStart: true,
-        ),
-      )
-      ..write('" <')
+    final trimmedName = personalName.trim();
+    final encodedName = MailCodec.quotedPrintable.encodeHeader(
+      trimmedName,
+      fromStart: true,
+    );
+    final buffer = StringBuffer();
+    if (encodedName == trimmedName) {
+      // Pure ASCII display name: render it as a quoted-string.
+      buffer
+        ..write('"')
+        ..write(encodedName)
+        ..write('"');
+    } else {
+      // Non-ASCII display name: `encodeHeader` produced RFC 2047
+      // encoded-word(s). An encoded-word must NOT be wrapped in a
+      // quoted-string (RFC 2047 §5) or strict clients leave it undecoded
+      // (e.g. Cyrillic names shown as literal `=?...?Q?...?=`), so emit
+      // the encoded-word(s) bare.
+      buffer.write(encodedName);
+    }
+    buffer
+      ..write(' <')
       ..write(email)
       ..write('>');
 
