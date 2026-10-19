@@ -136,6 +136,22 @@ void main() {
 
       expect(inputAddress.encode(), 'a@example.com');
     });
+
+    test('an ASCII name that looks like an encoded-word stays literal', () {
+      const inputName = '=?UTF-8?Q?fake?=';
+      final inputBuilder = MessageBuilder()
+        ..from = [const MailAddress('Me', 'me@example.com')]
+        ..to = [const MailAddress(inputName, 'a@example.com')]
+        ..text = 'hello';
+
+      final actualEncoded =
+          const MailAddress(inputName, 'a@example.com').encode();
+      final actualMessage = _roundTrip(inputBuilder);
+
+      // Encoded itself, so that no decoder turns it into `fake`.
+      expect(actualEncoded, isNot(contains(inputName)));
+      expect(actualMessage.to!.first.personalName, inputName);
+    });
   });
 
   group('email addresses', () {
@@ -160,6 +176,31 @@ void main() {
       final actualEncoded = inputAddress.encode();
 
       expect(actualEncoded, endsWith(' <коля@пример.рф>'));
+    });
+
+    test('list separators cannot turn one address into two', () {
+      for (final inputAddress in const [
+        MailAddress(null, 'a@example.com, b@example.com'),
+        MailAddress('Me', 'a@example.com; b@example.com'),
+      ]) {
+        final inputBuilder = MessageBuilder()
+          ..from = [const MailAddress('Me', 'me@example.com')]
+          ..to = [inputAddress]
+          ..text = 'hello';
+
+        final actualEncoded = inputAddress.encode();
+        final actualMessage = _roundTrip(inputBuilder);
+
+        expect(actualEncoded, isNot(contains(',')));
+        expect(actualEncoded, isNot(contains(';')));
+        expect(actualMessage.to, hasLength(1));
+      }
+    });
+
+    test('a quoted local part keeps its separators', () {
+      const inputAddress = MailAddress(null, '"a,b"@example.com');
+
+      expect(inputAddress.encode(), '"a,b"@example.com');
     });
   });
 
@@ -300,6 +341,61 @@ void main() {
 
       expect(actualMessage.decodeSubject(), 'Hello Bcc: evil@example.com');
       expect(actualMessage.hasHeader('bcc'), isFalse);
+    });
+
+    test('an encoded-word lookalike inside a word stays literal', () {
+      const inputSubject = 'foo=?utf-8?Q?hi?=bar and more';
+      final inputBuilder = MessageBuilder()
+        ..from = [const MailAddress('Me', 'me@example.com')]
+        ..to = [const MailAddress('You', 'you@example.com')]
+        ..subject = inputSubject
+        ..text = 'hello';
+
+      final actualHeaders = _renderedHeaders(inputBuilder);
+      final actualSubject = _roundTrip(inputBuilder).decodeSubject();
+
+      expect(actualHeaders, isNot(contains('foo=?utf-8?Q?hi?=bar')));
+      expect(actualSubject, inputSubject);
+    });
+  });
+
+  group('folding', () {
+    test('a token too long for one line is broken at the hard limit', () {
+      final inputSubject = 'Link: https://example.com/${'a' * 1500}';
+      final inputBuilder = MessageBuilder()
+        ..from = [const MailAddress('Me', 'me@example.com')]
+        ..to = [const MailAddress('You', 'you@example.com')]
+        ..subject = inputSubject
+        ..text = 'hello';
+
+      final actualHeaders = _renderedHeaders(inputBuilder);
+
+      for (final line in actualHeaders.split('\r\n')) {
+        expect(line.length, lessThanOrEqualTo(998));
+      }
+    });
+
+    test('References stays on one line until the hard limit', () {
+      final inputShort = List.generate(5, (i) => '<id$i@example.com>');
+      final inputLong =
+          List.generate(40, (i) => '<${'x' * 40}.$i@example.com>');
+
+      for (final inputIds in [inputShort, inputLong]) {
+        final inputHeader = Header('References', inputIds.join(' '));
+        final buffer = StringBuffer();
+
+        inputHeader.render(buffer);
+
+        final actualLines = buffer.toString().split('\r\n')..removeLast();
+        expect(actualLines.length, inputIds == inputShort ? 1 : greaterThan(1));
+        for (final line in actualLines) {
+          expect(line.length, lessThanOrEqualTo(998));
+        }
+        // Folded only between ids, so every id is intact.
+        final actualIds = actualLines.join().split(RegExp(r'\s+'))
+          ..remove('References:');
+        expect(actualIds.where((id) => id.isNotEmpty), inputIds);
+      }
     });
   });
 
