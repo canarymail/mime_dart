@@ -120,9 +120,11 @@ void main() {
     });
     test('encodeHeader.quoted-printable with UTF8 input', () {
       const input = 'Hello Wörld';
+      // The whole word is encoded: an encoded-word must be separated from
+      // adjacent text by whitespace (RFC 2047 §5(1)).
       expect(
         MailCodec.quotedPrintable.encodeHeader(input),
-        'Hello W=?utf8?Q?=C3=B6?=rld',
+        'Hello =?UTF-8?Q?W=C3=B6rld?=',
       );
       // counter test:
       expect(

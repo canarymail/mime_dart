@@ -1284,67 +1284,90 @@ class Header {
   };
 
   /// Renders this header into the [buffer] wrapping it if necessary.
+  ///
+  /// Long values are folded by inserting a line break before whitespace
+  /// (RFC 5322 §2.2.3), so unfolding gives back the original value. A token
+  /// longer than the line, such as an encoded-word or a long address, is
+  /// never split: the line runs long instead (the hard limit is 998).
   void render(StringBuffer buffer) {
-    final value = this.value;
-
-    // --- FIX: Bypass folding for no-fold headers ---
-    if (value != null && noFoldHeaders.contains(lowerCaseName)) {
-      buffer
-        ..write(name)
-        ..write(': ')
-        ..write(value)
-        ..write('\r\n');
-      return;
-    }
-
-    var length = name.length + ': '.length + (value?.length ?? 0);
+    final value = _withoutLineBreaks(this.value);
     buffer
       ..write(name)
       ..write(': ');
-    if (value == null || length < MailConventions.textLineMaxLength) {
-      if (value != null) {
-        buffer.write(value);
-      }
+    if (value == null) {
       buffer.write('\r\n');
 
       return;
     }
-    var currentLineLength = name.length + ': '.length;
-    length -= name.length + ': '.length;
-    final runes = value.runes.toList();
-    var startIndex = 0;
-    while (length > 0) {
-      var chunkLength = MailConventions.textLineMaxLength - currentLineLength;
-      if (startIndex + chunkLength >= value.length) {
-        // write reminder:
-        buffer
-          ..write(value.substring(startIndex).trim())
-          ..write('\r\n');
+    const maxLength = MailConventions.textLineMaxLength;
+    var lineLength = name.length + ': '.length;
+    if (noFoldHeaders.contains(lowerCaseName) ||
+        lineLength + value.length <= maxLength) {
+      buffer
+        ..write(value)
+        ..write('\r\n');
+
+      return;
+    }
+    var start = 0;
+    while (lineLength + value.length - start > maxLength) {
+      final breakIndex = _foldIndex(value, start, maxLength - lineLength);
+      if (breakIndex == -1) {
         break;
       }
-      for (var runeIndex = startIndex + chunkLength;
-          runeIndex > startIndex;
-          runeIndex--) {
-        final rune = runes[runeIndex];
-        if (rune == AsciiRunes.runeSemicolon ||
-            rune == AsciiRunes.runeSpace ||
-            rune == AsciiRunes.runeClosingParentheses ||
-            rune == AsciiRunes.runeClosingBracket ||
-            rune == AsciiRunes.runeGreaterThan) {
-          chunkLength = runeIndex - startIndex + 1;
-          break;
-        }
-      }
       buffer
-        ..write(value.substring(startIndex, startIndex + chunkLength).trim())
+        ..write(value.substring(start, breakIndex))
         ..write('\r\n');
-      length -= chunkLength;
-      startIndex += chunkLength;
-      if (length > 0) {
-        buffer.writeCharCode(AsciiRunes.runeTab);
-        currentLineLength = 1;
+      // The continuation line starts with the whitespace folded before.
+      start = breakIndex;
+      lineLength = 0;
+    }
+    buffer
+      ..write(value.substring(start))
+      ..write('\r\n');
+  }
+
+  /// Finds where to fold [value] for a line that starts at [start] and has
+  /// room for [space] more characters.
+  ///
+  /// Returns the index of the last whitespace that fits, else of the first
+  /// one after it, or `-1` when no whitespace is left.
+  static int _foldIndex(String value, int start, int space) {
+    final limit = start + space;
+    for (var i = limit < value.length ? limit : value.length - 1;
+        i > start;
+        i--) {
+      if (_isWhitespace(value.codeUnitAt(i)) &&
+          !_isWhitespace(value.codeUnitAt(i - 1))) {
+        return i;
       }
     }
+    for (var i = limit + 1; i < value.length; i++) {
+      if (_isWhitespace(value.codeUnitAt(i)) &&
+          !_isWhitespace(value.codeUnitAt(i - 1))) {
+        return i;
+      }
+    }
+
+    return -1;
+  }
+
+  static bool _isWhitespace(int codeUnit) =>
+      codeUnit == AsciiRunes.runeSpace || codeUnit == AsciiRunes.runeTab;
+
+  /// Removes line breaks, which would otherwise end the header early and let
+  /// the rest of the value be read as further headers.
+  ///
+  /// A line break followed by whitespace is a fold and is unfolded; any other
+  /// becomes a space.
+  static String? _withoutLineBreaks(String? value) {
+    if (value == null || (!value.contains('\r') && !value.contains('\n'))) {
+      return value;
+    }
+
+    return value
+        .replaceAll(RegExp(r'\r\n(?=[ \t])'), '')
+        .replaceAll(RegExp(r'\r\n|\r|\n'), ' ');
   }
 }
 
@@ -1971,8 +1994,9 @@ class ContentDispositionHeader extends ParameterizedHeader {
     // (MailCodec.decodeHeader is already applied to filename above), so
     // otherwise raw UTF-8 bytes end up embedded in the header and get
     // mis-decoded as Latin-1 (mojibake) by receiving clients/servers.
-    final encodedFilename =
-        filename == null ? null : MailCodec.base64.encodeHeader(filename!);
+    final encodedFilename = filename == null
+        ? null
+        : MailCodec.base64.encodeHeader(filename!, fromStart: true);
     renderField('filename', encodedFilename, buffer, quote: true);
     renderDateField('creation-date', creationDate, buffer);
     renderDateField('modification-date', modificationDate, buffer);

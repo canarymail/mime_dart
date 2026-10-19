@@ -1,6 +1,6 @@
 import 'package:json_annotation/json_annotation.dart';
 
-import 'codecs/mail_codec.dart';
+import 'private/util/encoded_words.dart';
 import 'private/util/mail_address_parser.dart';
 
 part 'mail_address.g.dart';
@@ -94,37 +94,42 @@ class MailAddress {
   ///
   /// Compare [MailAddress.parse] to decode an address
   String encode() {
+    final email = _encodeEmail(this.email);
     final personalName = this.personalName;
     if (personalName == null || hasNoPersonalName) {
       return email;
     }
-    final trimmedName = personalName.trim();
-    final encodedName = MailCodec.quotedPrintable.encodeHeader(
-      trimmedName,
-      fromStart: true,
-    );
-    final buffer = StringBuffer();
-    if (encodedName == trimmedName) {
-      // Pure ASCII display name: render it as a quoted-string.
-      buffer
-        ..write('"')
-        ..write(encodedName)
-        ..write('"');
-    } else {
-      // Non-ASCII display name: `encodeHeader` produced RFC 2047
-      // encoded-word(s). An encoded-word must NOT be wrapped in a
-      // quoted-string (RFC 2047 §5) or strict clients leave it undecoded
-      // (e.g. Cyrillic names shown as literal `=?...?Q?...?=`), so emit
-      // the encoded-word(s) bare.
-      buffer.write(encodedName);
-    }
-    buffer
-      ..write(' <')
-      ..write(email)
-      ..write('>');
-
-    return buffer.toString();
+    return '${_encodePhrase(personalName)} <$email>';
   }
+
+  /// Encodes a display name as an RFC 5322 phrase.
+  ///
+  /// A printable ASCII name becomes a quoted-string. Anything else becomes
+  /// bare RFC 2047 encoded-words: an encoded-word inside a quoted-string is
+  /// not decoded by strict clients (RFC 2047 §5), and outside one it may only
+  /// carry the restricted phrase characters, or a `,` `<` `(` `"` in the name
+  /// would split or reshape the address list.
+  static String _encodePhrase(String name) {
+    // A line break in a header value would start a new header.
+    final cleaned = name.replaceAll(_nameLineBreaks, ' ').trim();
+    if (cleaned.runes.any(EncodedWords.requiresEncoding)) {
+      return EncodedWords.encodePhrase(cleaned);
+    }
+    final escaped = cleaned.replaceAll(r'\', r'\\').replaceAll('"', r'\"');
+
+    return '"$escaped"';
+  }
+
+  /// Strips what cannot be part of an addr-spec in a header.
+  ///
+  /// An addr-spec is never RFC 2047-encoded; a non-ASCII address is kept as
+  /// UTF-8 (RFC 6532). Control characters would break the header and angle
+  /// brackets the `<addr-spec>` around it.
+  static String _encodeEmail(String email) =>
+      email.replaceAll(_emailUnsafe, '').trim();
+
+  static final _nameLineBreaks = RegExp(r'\r\n|\r|\n');
+  static final _emailUnsafe = RegExp(r'[\x00-\x1F\x7F<>]');
 
   /// Encodes this mail address into the given [buffer]
   void writeToStringBuffer(StringBuffer buffer) {

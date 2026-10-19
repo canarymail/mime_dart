@@ -100,7 +100,10 @@ void main() {
     });
     test('encodeHeader.base64 with UTF8 input', () {
       const input = 'Hello Wörld';
-      expect(MailCodec.base64.encodeHeader(input), 'Hello W=?utf8?B?w7Y=?=rld');
+      // The whole word is encoded: an encoded-word must be separated from
+      // adjacent text by whitespace (RFC 2047 §5(1)).
+      expect(
+          MailCodec.base64.encodeHeader(input), 'Hello =?UTF-8?B?V8O2cmxk?=');
       // counter test:
       expect(
         MailCodec.decodeHeader('Hello W=?utf8?B?w7Y=?=rld'),
