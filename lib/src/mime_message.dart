@@ -1287,8 +1287,11 @@ class Header {
   ///
   /// Long values are folded by inserting a line break before whitespace
   /// (RFC 5322 §2.2.3), so unfolding gives back the original value. A token
-  /// longer than the line, such as an encoded-word or a long address, is
-  /// never split: the line runs long instead (the hard limit is 998).
+  /// longer than the line, such as an encoded-word or a long address, is not
+  /// split: the line runs long instead. Only a token that would take the line
+  /// past the hard limit of 998 characters is broken, as a last resort.
+  ///
+  /// The [noFoldHeaders] stay on one line until they reach that limit.
   void render(StringBuffer buffer) {
     final value = _withoutLineBreaks(this.value);
     buffer
@@ -1299,33 +1302,42 @@ class Header {
 
       return;
     }
-    const maxLength = MailConventions.textLineMaxLength;
+    const hardLimit = MailConventions.messageLineMaxLength;
+    final limit = noFoldHeaders.contains(lowerCaseName)
+        ? hardLimit
+        : MailConventions.textLineMaxLength;
     var lineLength = name.length + ': '.length;
-    if (noFoldHeaders.contains(lowerCaseName) ||
-        lineLength + value.length <= maxLength) {
-      buffer
-        ..write(value)
-        ..write('\r\n');
-
-      return;
-    }
     var start = 0;
-    while (lineLength + value.length - start > maxLength) {
-      final breakIndex = _foldIndex(value, start, maxLength - lineLength);
-      if (breakIndex == -1) {
-        break;
+    while (lineLength + value.length - start > limit) {
+      var breakIndex = _foldIndex(value, start, limit - lineLength);
+      var continuation = '';
+      if (breakIndex == -1 || lineLength + breakIndex - start > hardLimit) {
+        if (lineLength + value.length - start <= hardLimit) {
+          break;
+        }
+        // No whitespace before the hard limit: break inside the token. This
+        // changes it, but a longer line may be rejected outright.
+        breakIndex = start + hardLimit - lineLength;
+        if (_isHighSurrogate(value.codeUnitAt(breakIndex - 1))) {
+          breakIndex--;
+        }
+        continuation = ' ';
       }
       buffer
         ..write(value.substring(start, breakIndex))
-        ..write('\r\n');
+        ..write('\r\n')
+        ..write(continuation);
       // The continuation line starts with the whitespace folded before.
       start = breakIndex;
-      lineLength = 0;
+      lineLength = continuation.length;
     }
     buffer
       ..write(value.substring(start))
       ..write('\r\n');
   }
+
+  static bool _isHighSurrogate(int codeUnit) =>
+      codeUnit >= 0xD800 && codeUnit <= 0xDBFF;
 
   /// Finds where to fold [value] for a line that starts at [start] and has
   /// room for [space] more characters.

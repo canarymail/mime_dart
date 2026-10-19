@@ -127,12 +127,21 @@ class EncodedWords {
   static bool requiresEncoding(int rune) =>
       rune > 126 || (rune < 32 && rune != 9);
 
-  /// A word needs encoding when it has a character that cannot appear in a
-  /// header, or when it looks like an encoded-word and so would be decoded.
-  static bool _wordNeedsEncoding(String word) =>
-      word.runes.any(requiresEncoding) ||
-      (word.startsWith('=?') && word.endsWith('?='));
+  /// Checks if the [text] contains something that looks like an
+  /// encoded-word, such as `=?UTF-8?Q?hi?=`.
+  ///
+  /// Decoders would turn it into other text, and lenient ones do so even
+  /// inside a quoted-string or a word, so such text has to be encoded itself.
+  static bool containsEncodedWord(String text) =>
+      _encodedWordLookalike.hasMatch(text);
 
+  /// A word needs encoding when it has a character that cannot appear in a
+  /// header, or when it contains something a decoder would decode.
+  static bool _wordNeedsEncoding(String word) =>
+      word.runes.any(requiresEncoding) || containsEncodedWord(word);
+
+  static final _encodedWordLookalike =
+      RegExp(r'=\?[^?\s]+\?[BbQq]\?[^?\s]*\?=');
   static final _words = RegExp(r'[^ \t]+');
   static final _foldedLineBreaks = RegExp(r'\r\n(?=[ \t])');
   static final _lineBreaks = RegExp(r'\r\n|\r|\n');

@@ -99,6 +99,7 @@ class MailAddress {
     if (personalName == null || hasNoPersonalName) {
       return email;
     }
+
     return '${_encodePhrase(personalName)} <$email>';
   }
 
@@ -112,7 +113,10 @@ class MailAddress {
   static String _encodePhrase(String name) {
     // A line break in a header value would start a new header.
     final cleaned = name.replaceAll(_nameLineBreaks, ' ').trim();
-    if (cleaned.runes.any(EncodedWords.requiresEncoding)) {
+    // A name that merely looks like an encoded-word is encoded too, or
+    // decoders that look inside quoted-strings would show other text.
+    if (cleaned.runes.any(EncodedWords.requiresEncoding) ||
+        EncodedWords.containsEncodedWord(cleaned)) {
       return EncodedWords.encodePhrase(cleaned);
     }
     final escaped = cleaned.replaceAll(r'\', r'\\').replaceAll('"', r'\"');
@@ -124,12 +128,21 @@ class MailAddress {
   ///
   /// An addr-spec is never RFC 2047-encoded; a non-ASCII address is kept as
   /// UTF-8 (RFC 6532). Control characters would break the header and angle
-  /// brackets the `<addr-spec>` around it.
-  static String _encodeEmail(String email) =>
-      email.replaceAll(_emailUnsafe, '').trim();
+  /// brackets the `<addr-spec>` around it. Unless the local part is quoted,
+  /// `,` and `;` are dropped too: parsers split an address list there, even
+  /// inside `<>`, so one address of `a@x.com, b@y.com` would become two
+  /// recipients.
+  static String _encodeEmail(String email) {
+    final cleaned = email.replaceAll(_emailUnsafe, '').trim();
+
+    return cleaned.contains('"')
+        ? cleaned
+        : cleaned.replaceAll(_listSeparators, '');
+  }
 
   static final _nameLineBreaks = RegExp(r'\r\n|\r|\n');
   static final _emailUnsafe = RegExp(r'[\x00-\x1F\x7F<>]');
+  static final _listSeparators = RegExp('[,;]');
 
   /// Encodes this mail address into the given [buffer]
   void writeToStringBuffer(StringBuffer buffer) {
