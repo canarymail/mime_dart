@@ -7,6 +7,8 @@ import 'word.dart';
 class MailAddressParser {
   MailAddressParser._();
 
+  static final _quotedPair = RegExp(r'\\(.)');
+
   /// Parses one or more addresses given in the [emailText].
   static List<MailAddress> parseEmailAddresses(String? emailText) {
     if (emailText == null || emailText.isEmpty) {
@@ -69,10 +71,14 @@ class MailAddressParser {
           ? null
           : addressPart.substring(0, emailWord.startIndex - 1).trim();
       if (name != null) {
-        if (name.startsWith('"') && name.endsWith('"')) {
-          name = name.substring(1, name.length - 1);
+        if (name.length >= 2 && name.startsWith('"') && name.endsWith('"')) {
+          // A quoted-string: undo its quoted-pairs, such as `\"` and `\\`.
+          name = name
+              .substring(1, name.length - 1)
+              .replaceAllMapped(_quotedPair, (match) => match.group(1)!);
+        } else {
+          name = name.replaceAll(r'\"', '"');
         }
-        name = name.replaceAll(r'\"', '"');
         if (name.contains('=?')) {
           try {
             name = MailCodec.decodeHeader(name);

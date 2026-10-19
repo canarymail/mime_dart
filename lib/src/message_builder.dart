@@ -225,7 +225,7 @@ class PartBuilder {
       // Encode non-ASCII names (e.g. German umlauts) the same way as the
       // Content-Disposition filename — see ContentDispositionHeader.render.
       contentType.parameters['name'] =
-          '"${MailCodec.base64.encodeHeader(name)}"';
+          '"${MailCodec.base64.encodeHeader(name, fromStart: true)}"';
     }
     if (parameters != null && parameters.isNotEmpty) {
       contentType.parameters.addAll(parameters);

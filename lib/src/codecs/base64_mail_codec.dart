@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import '../mail_conventions.dart';
 import '../private/util/ascii_runes.dart';
+import '../private/util/encoded_words.dart';
 import 'mail_codec.dart';
 
 /// Provides base64 encoder and decoder.
@@ -53,7 +54,8 @@ class Base64MailCodec extends MailCodec {
   ///
   /// [text] specifies the text to be encoded.
   /// Set the optional [fromStart] to true in case the encoding should
-  /// start at the beginning of the text and not in the middle.
+  /// start at the beginning of the text and not at the first word that
+  /// needs it.
   /// Set the [nameLength] for ensuring there is enough place for the
   /// name of the encoding.
   @override
@@ -61,89 +63,13 @@ class Base64MailCodec extends MailCodec {
     String text, {
     int nameLength = 0,
     bool fromStart = false,
-  }) {
-    // Walk runes (Unicode code points) but track UTF-16 *code unit* offsets,
-    // since text.substring() below indexes by code unit. Runes outside the
-    // BMP (e.g. most emoji) occupy 2 code units each — indexing substring()
-    // with a rune index instead would slice a surrogate pair in half.
-    final runes = List.from(text.runes, growable: false);
-    var numberOfRunesAbove7Bit = 0;
-    var startIndex = -1;
-    var endIndex = -1;
-    var codeUnitOffset = 0;
-    for (var runeIndex = 0; runeIndex < runes.length; runeIndex++) {
-      final rune = runes[runeIndex];
-      final runeCodeUnitLength = rune > 0xFFFF ? 2 : 1;
-      if (rune > 128) {
-        numberOfRunesAbove7Bit++;
-        if (startIndex == -1) {
-          startIndex = codeUnitOffset;
-          endIndex = codeUnitOffset + runeCodeUnitLength - 1;
-        } else {
-          endIndex = codeUnitOffset + runeCodeUnitLength - 1;
-        }
-      }
-      codeUnitOffset += runeCodeUnitLength;
-    }
-    if (numberOfRunesAbove7Bit == 0) {
-      return text;
-    } else {
-      const qpWordHead = '=?utf8?B?';
-      const qpWordTail = '?=';
-      const qpWordDelimiterSize = qpWordHead.length + qpWordTail.length;
-      if (fromStart) {
-        startIndex = 0;
-        endIndex = text.length - 1;
-      }
-      // Available space for the current encoded word
-      var qpWordSize = MailConventions.encodedWordMaxLength -
-          qpWordDelimiterSize -
-          startIndex -
-          (nameLength + 2);
-      final buffer = StringBuffer();
-      if (startIndex > 0) {
-        buffer.write(text.substring(0, startIndex));
-      }
-      final textToEncode =
-          fromStart ? text : text.substring(startIndex, endIndex + 1);
-      final encoded = encodeText(textToEncode, wrap: false);
-      buffer.write(qpWordHead);
-      if (encoded.length < qpWordSize) {
-        buffer.write(encoded);
-      } else {
-        // Reuses startIndex for folding
-        startIndex = 0;
-        while (startIndex < encoded.length) {
-          final chunk = startIndex + qpWordSize > encoded.length
-              ? encoded.substring(startIndex)
-              : encoded.substring(startIndex, startIndex + qpWordSize);
-          buffer.write(chunk);
-          startIndex += qpWordSize;
-          if (startIndex < encoded.length) {
-            buffer
-              ..write(qpWordTail)
-              // NOTE Per specification, a CRLF should be inserted here,
-              // but the folding occurs on the rendering function.
-              // Here we leave only the WSP marker
-              // to separate each q-encoded word.
-              // ..writeCharCode(AsciiRunes.runeCarriageReturn)
-              // ..writeCharCode(AsciiRunes.runeLineFeed)
-              // Assumes per default a single leading space for header folding
-              ..writeCharCode(AsciiRunes.runeSpace)
-              ..write(qpWordHead);
-            qpWordSize =
-                MailConventions.encodedWordMaxLength - qpWordDelimiterSize - 1;
-          }
-        }
-      }
-      buffer.write(qpWordTail);
-      if (endIndex < text.length - 1) {
-        buffer.write(text.substring(endIndex + 1));
-      }
-
-      return buffer.toString();
-    }
-  }
+  }) =>
+      EncodedWords.encodeHeaderText(
+        text,
+        useBase64: true,
+        nameLength: nameLength,
+        fromStart: fromStart,
+      );
 
   @override
   Uint8List decodeData(final String part) {

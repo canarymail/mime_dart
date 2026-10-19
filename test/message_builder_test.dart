@@ -504,7 +504,7 @@ END:VCARD\r
       );
       expect(
         message.getHeaderValue('cc'),
-        '=?utf8?Q?One_m=C3=B6re?= <one.more@domain.com>',
+        '=?UTF-8?Q?One_m=C3=B6re?= <one.more@domain.com>',
       );
       expect(
         message.getHeaderValue('Content-Type'),
@@ -628,7 +628,7 @@ END:VCARD\r
       );
       expect(
         message.getHeaderValue('cc'),
-        '=?utf8?Q?One_m=C3=B6re?= <one.more@domain.com>',
+        '=?UTF-8?Q?One_m=C3=B6re?= <one.more@domain.com>',
       );
       expect(
         message.getHeaderValue('Content-Type'),
@@ -696,7 +696,7 @@ END:VCARD\r
       );
       expect(
         message.getHeaderValue('cc'),
-        '=?utf8?Q?One_m=C3=B6re?= <one.more@domain.com>',
+        '=?UTF-8?Q?One_m=C3=B6re?= <one.more@domain.com>',
       );
       expect(
         message.getHeaderContentType()?.mediaType.sub,
@@ -747,7 +747,7 @@ END:VCARD\r
       expect(message.getHeaderValue('to'), '"Me" <recipient@domain.com>');
       expect(
         message.getHeaderValue('cc'),
-        '=?utf8?Q?One_m=C3=B6re?= <one.more@domain.com>',
+        '=?UTF-8?Q?One_m=C3=B6re?= <one.more@domain.com>',
       );
     });
 
@@ -778,7 +778,7 @@ END:VCARD\r
       expect(message.getHeaderValue('to'), '"Me" <recipient@domain.com>');
       expect(
         message.getHeaderValue('cc'),
-        '=?utf8?Q?One_m=C3=B6re?= <one.more@domain.com>',
+        '=?UTF-8?Q?One_m=C3=B6re?= <one.more@domain.com>',
       );
       expect(
         message.getHeaderValue('from'),
@@ -813,7 +813,7 @@ END:VCARD\r
       expect(message.getHeaderValue('to'), '"Me" <recipient@domain.com>');
       expect(
         message.getHeaderValue('cc'),
-        '=?utf8?Q?One_m=C3=B6re?= <one.more@domain.com>',
+        '=?UTF-8?Q?One_m=C3=B6re?= <one.more@domain.com>',
       );
       expect(
         message.getHeaderValue('from'),
@@ -858,7 +858,7 @@ END:VCARD\r
       );
       expect(
         message.getHeaderValue('cc'),
-        '=?utf8?Q?One_m=C3=B6re?= <one.more@domain.com>',
+        '=?UTF-8?Q?One_m=C3=B6re?= <one.more@domain.com>',
       );
     });
 
@@ -899,7 +899,7 @@ END:VCARD\r
       );
       expect(
         message.getHeaderValue('cc'),
-        '=?utf8?Q?One_m=C3=B6re?= <one.more@domain.com>',
+        '=?UTF-8?Q?One_m=C3=B6re?= <one.more@domain.com>',
       );
     });
   });
@@ -1497,7 +1497,7 @@ END:VCARD\r
       );
       final builder = MessageBuilder.prepareMailtoBasedMessage(mailto, from);
       final message = builder.buildMimeMessage();
-      expect(message.getHeaderValue('subject'), 'hello w=?utf8?Q?=C3=B6?=rld');
+      expect(message.getHeaderValue('subject'), 'hello =?UTF-8?Q?w=C3=B6rld?=');
       expect(message.getHeaderValue('to'), 'recpient@domain.com');
       expect(message.getHeaderValue('cc'), 'another@domain.com');
       expect(message.decodeContentText(), 'let me unsubscribe');

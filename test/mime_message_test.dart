@@ -865,22 +865,21 @@ Content-type: text/plain; charset=ISO-8859-1\r
       final text = buffer.toString().split('\r\n');
       expect(text.length, 3);
       expect(text[0], 'Content-Type: multipart/alternative;');
-      expect(text[1], '\tboundary="12345678901233456789012345678901234567"');
+      // Folded before the whitespace, which starts the continuation line, so
+      // unfolding gives back the original value (RFC 5322 §2.2.3).
+      expect(text[1], ' boundary="12345678901233456789012345678901234567"');
       expect(text[2], '');
     });
 
     test('header?.render() long line 2', () {
-      final header = Header(
-        'Content-Type',
-        'multipart/alternative;boundary="12345678901233456789012345678901234567"',
-      );
+      const value =
+          'multipart/alternative;boundary="12345678901233456789012345678901234567"';
+      final header = Header('Content-Type', value);
       final buffer = StringBuffer();
       header.render(buffer);
-      final text = buffer.toString().split('\r\n');
-      expect(text.length, 3);
-      expect(text[0], 'Content-Type: multipart/alternative;');
-      expect(text[1], '\tboundary="12345678901233456789012345678901234567"');
-      expect(text[2], '');
+      // Folding may only insert a line break before existing whitespace, so a
+      // value without any stays on one line rather than being changed.
+      expect(buffer.toString(), 'Content-Type: $value\r\n');
     });
 
     test('header?.render() long line 3', () {
@@ -893,35 +892,46 @@ Content-type: text/plain; charset=ISO-8859-1\r
       final text = buffer.toString();
       expect(
         text,
-        'Content-Type: multipart/alternative;\r\n'
-        '\tboundary="12345678901233456789012345678901234567";\r\n'
-        '\tfileName="one_two_three_four_five_six_seven.png";\r\n',
+        'Content-Type: multipart/alternative;'
+        'boundary="12345678901233456789012345678901234567";\r\n'
+        ' fileName="one_two_three_four_five_six_seven.png";\r\n',
       );
     });
 
     test('header?.render() long line without split pos', () {
-      final header = Header(
-        'Content-Type',
-        '1234567890123456789012345678901234567890123456789012345678901234'
-            '5678901234567890123456789012345678901234567890123456789012345678'
-            '90123456789012345678901234567890',
-      );
+      const value =
+          '1234567890123456789012345678901234567890123456789012345678901234'
+          '5678901234567890123456789012345678901234567890123456789012345678'
+          '90123456789012345678901234567890';
+      final header = Header('Content-Type', value);
       final buffer = StringBuffer();
       header.render(buffer);
-      final text = buffer.toString().split('\r\n');
-      expect(text.length, 4);
-      expect(
-        text[0],
-        'Content-Type: 123456789012345678901234567890123456789012345678901'
-        '23456789012',
-      );
-      expect(
-        text[1],
-        '\t345678901234567890123456789012345678901234567890123456789012345'
-        '678901234567',
-      );
-      expect(text[2], '\t89012345678901234567890');
-      expect(text[3], '');
+      // A token is never split: that would insert whitespace into it, which
+      // breaks encoded-words and addresses. The line runs long instead.
+      expect(buffer.toString(), 'Content-Type: $value\r\n');
+    });
+
+    test('header?.render() never splits an encoded-word', () {
+      const word = '=?UTF-8?Q?=D0=90=D0=BB=D0=B5=D0=BA=D1=81'
+          '=D0=B0=D0=BD=D0=B4=D1=80_=D0=98?=';
+      final header = Header('Sender', '$word <me@example.com>');
+      final buffer = StringBuffer();
+      header.render(buffer);
+      expect(buffer.toString(), 'Sender: $word\r\n <me@example.com>\r\n');
+    });
+
+    test('header?.render() turns a stray line break into a space', () {
+      final header = Header('Subject', 'Hello\r\nBcc: evil@example.com');
+      final buffer = StringBuffer();
+      header.render(buffer);
+      expect(buffer.toString(), 'Subject: Hello Bcc: evil@example.com\r\n');
+    });
+
+    test('header?.render() unfolds a folded value before folding it again', () {
+      final header = Header('Subject', 'Hello\r\n World');
+      final buffer = StringBuffer();
+      header.render(buffer);
+      expect(buffer.toString(), 'Subject: Hello World\r\n');
     });
   });
 
