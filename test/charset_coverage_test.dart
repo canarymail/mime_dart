@@ -3,19 +3,28 @@ import 'dart:typed_data';
 import 'package:mime_dart/mime_dart.dart';
 import 'package:test/test.dart';
 
-Uint8List _message(String charset, List<int> body) => Uint8List.fromList([
+Uint8List _message(
+  String charset,
+  List<int> body, {
+  String transferEncoding = '8bit',
+}) =>
+    Uint8List.fromList([
       ...'Subject: charset test\r\n'
               'MIME-Version: 1.0\r\n'
               'Content-Type: text/plain; charset="$charset"\r\n'
-              'Content-Transfer-Encoding: 8bit\r\n\r\n'
+              'Content-Transfer-Encoding: $transferEncoding\r\n\r\n'
           .codeUnits,
       ...body,
     ]);
 
-String _decode(String charset, List<int> body) =>
-    MimeMessage.parseFromData(_message(charset, body))
-        .decodeContentText()
-        ?.trim() ??
+String _decode(
+  String charset,
+  List<int> body, {
+  String transferEncoding = '8bit',
+}) =>
+    MimeMessage.parseFromData(
+      _message(charset, body, transferEncoding: transferEncoding),
+    ).decodeContentText()?.trim() ??
     '';
 
 void main() {
@@ -102,6 +111,31 @@ void main() {
       ]),
       '日本語',
     );
+  });
+
+  test('ISO-2022-JP quoted-printable decodes escapes with the text they switch',
+      () {
+    expect(
+      _decode(
+        'iso-2022-jp',
+        r"=1B$BI=3D<($H5!G=3D$r3NG'=1B(B".codeUnits,
+        transferEncoding: 'quoted-printable',
+      ),
+      '表示と機能を確認',
+    );
+    expect(diagnostics.single.kind, CharsetDiagnosticKind.supported);
+  });
+
+  test('Shift_JIS quoted-printable keeps literal ASCII trail bytes', () {
+    expect(
+      _decode(
+        'shift_jis',
+        r'=83\=83t=83g=82=CC=95\=8E=A6'.codeUnits,
+        transferEncoding: 'quoted-printable',
+      ),
+      'ソフトの表示',
+    );
+    expect(diagnostics.single.kind, CharsetDiagnosticKind.supported);
   });
 
   test('GB18030 four-byte sequences decode outside GBK', () {

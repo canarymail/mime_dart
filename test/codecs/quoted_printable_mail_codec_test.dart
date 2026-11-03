@@ -102,6 +102,30 @@ void main() {
       expect(printed, isEmpty);
     });
 
+    test('ISO-2022-JP Q-encoded header', () {
+      const input = r'=?ISO-2022-JP?Q?=1B$B2q5D=1B(B?=';
+      expect(MailCodec.decodeHeader(input), '会議');
+    });
+
+    test('literal non-ASCII characters are kept as they are', () {
+      expect(
+        MailCodec.quotedPrintable
+            .decodeTextStrict('Grüße =E2=80=93 ok', convert.utf8),
+        'Grüße – ok',
+      );
+    });
+
+    test('equals sign at the end does not throw', () {
+      expect(
+        MailCodec.quotedPrintable.decodeTextStrict('abc=', convert.utf8),
+        'abc',
+      );
+      expect(
+        MailCodec.quotedPrintable.decodeTextStrict('abc=4', convert.utf8),
+        'abc4',
+      );
+    });
+
     test('strict decoder exposes malformed charset bytes', () {
       expect(
         () => MailCodec.quotedPrintable.decodeTextStrict(

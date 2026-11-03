@@ -85,8 +85,10 @@ void main() {
           'B=BF=EF=BB=BF5?=';
       expect(
         MailCodec.decodeHeader(input),
-        'О﻿﻿﻿f﻿﻿f﻿﻿і﻿﻿﻿с﻿﻿﻿е﻿'
-        '﻿﻿ ​​﻿3﻿﻿6﻿﻿5',
+        'О﻿﻿﻿f﻿﻿﻿f﻿﻿﻿'
+        'і﻿﻿﻿с﻿﻿﻿е﻿﻿'
+        '﻿ ​​﻿3﻿﻿﻿6﻿﻿'
+        '﻿5',
       );
       input =
           '=?UTF-8?B?RXhrbHVzaXZlIEVpbmxhZHVuZzogSW5mbHVlbmNlci1WZXJidW5kIA='

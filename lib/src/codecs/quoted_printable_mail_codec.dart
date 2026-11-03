@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' show min;
 import 'dart:typed_data';
 
 import '../mail_conventions.dart';
@@ -127,40 +128,54 @@ class QuotedPrintableMailCodec extends MailCodec {
     required bool propagateCodecErrors,
   }) {
     final buffer = StringBuffer();
+    // Escaped and literal ASCII bytes are decoded as one stream: ISO-2022-JP
+    // and Shift_JIS spread a single character across both.
+    final bytes = BytesBuilder(copy: false);
+    void flush() {
+      if (bytes.isEmpty) {
+        return;
+      }
+      final data = bytes.takeBytes();
+      try {
+        buffer.write(codec.decode(data));
+      } on FormatException {
+        if (propagateCodecErrors) {
+          rethrow;
+        }
+        buffer.write(String.fromCharCodes(data));
+      }
+    }
+
+    void writeLiteral(int codeUnit) {
+      if (codeUnit < 0x80) {
+        bytes.addByte(codeUnit);
+      } else {
+        flush();
+        buffer.writeCharCode(codeUnit);
+      }
+    }
+
     // remove all soft-breaks:
     final cleaned = part.replaceAll('=\r\n', '');
     for (var i = 0; i < cleaned.length; i++) {
-      final char = cleaned[i];
-      if (char == '=') {
-        final hexText = cleaned.substring(i + 1, i + 3);
-        var charCode = int.tryParse(hexText, radix: 16);
-        if (charCode == null) {
-          buffer.write(hexText);
+      final codeUnit = cleaned.codeUnitAt(i);
+      if (codeUnit == AsciiRunes.runeEquals) {
+        final hexText = cleaned.substring(i + 1, min(i + 3, cleaned.length));
+        final byte =
+            hexText.length == 2 ? int.tryParse(hexText, radix: 16) : null;
+        if (byte == null) {
+          hexText.codeUnits.forEach(writeLiteral);
         } else {
-          final charCodes = [charCode];
-          while (cleaned.length > (i + 4) && cleaned[i + 3] == '=') {
-            i += 3;
-            final hexText = cleaned.substring(i + 1, i + 3);
-            charCode = int.parse(hexText, radix: 16);
-            charCodes.add(charCode);
-          }
-
-          try {
-            buffer.write(codec.decode(charCodes));
-          } on FormatException {
-            if (propagateCodecErrors) {
-              rethrow;
-            }
-            buffer.write(String.fromCharCodes(charCodes));
-          }
+          bytes.addByte(byte);
         }
         i += 2;
-      } else if (isHeader && char == '_') {
-        buffer.write(' ');
+      } else if (isHeader && codeUnit == AsciiRunes.runeUnderline) {
+        bytes.addByte(AsciiRunes.runeSpace);
       } else {
-        buffer.write(char);
+        writeLiteral(codeUnit);
       }
     }
+    flush();
 
     return buffer.toString();
   }
