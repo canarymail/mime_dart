@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:math' show min;
 import 'dart:typed_data';
 
 import '../mail_conventions.dart';
@@ -130,7 +129,7 @@ class QuotedPrintableMailCodec extends MailCodec {
     final buffer = StringBuffer();
     // Escaped and literal ASCII bytes are decoded as one stream: ISO-2022-JP
     // and Shift_JIS spread a single character across both.
-    final bytes = BytesBuilder(copy: false);
+    final bytes = BytesBuilder();
     void flush() {
       if (bytes.isEmpty) {
         return;
@@ -160,9 +159,8 @@ class QuotedPrintableMailCodec extends MailCodec {
     for (var i = 0; i < cleaned.length; i++) {
       final codeUnit = cleaned.codeUnitAt(i);
       if (codeUnit == AsciiRunes.runeEquals) {
-        final hexText = cleaned.substring(i + 1, min(i + 3, cleaned.length));
-        final byte =
-            hexText.length == 2 ? int.tryParse(hexText, radix: 16) : null;
+        final hexText = cleaned.substring(i + 1, i + 3);
+        final byte = int.tryParse(hexText, radix: 16);
         if (byte == null) {
           hexText.codeUnits.forEach(writeLiteral);
         } else {

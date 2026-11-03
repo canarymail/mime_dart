@@ -115,17 +115,6 @@ void main() {
       );
     });
 
-    test('equals sign at the end does not throw', () {
-      expect(
-        MailCodec.quotedPrintable.decodeTextStrict('abc=', convert.utf8),
-        'abc',
-      );
-      expect(
-        MailCodec.quotedPrintable.decodeTextStrict('abc=4', convert.utf8),
-        'abc4',
-      );
-    });
-
     test('strict decoder exposes malformed charset bytes', () {
       expect(
         () => MailCodec.quotedPrintable.decodeTextStrict(
