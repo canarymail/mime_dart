@@ -1801,7 +1801,8 @@ class ParameterizedHeader {
   ///
   /// The decoded value replaces any plain value of the same name: a sender
   /// that writes both means the plain one as an ASCII fallback for readers
-  /// without RFC 2231 (RFC 6266 §4.3). A non-ASCII result is stored as an
+  /// without RFC 2231 (RFC 6266 §4.3). Only a value that did not decode
+  /// (U+FFFD in it) keeps the plain one instead. A non-ASCII result is stored as an
   /// RFC 2047 encoded-word, the form a plain parameter would carry it in,
   /// so readers that decode encoded-words get it back unchanged and a
   /// re-rendered header stays 7-bit.
@@ -1816,7 +1817,13 @@ class ParameterizedHeader {
       final indexText = match.group(2);
       // `name*` alone is a single, always-encoded segment. When a sender
       // also numbers segments, the single form wins (it is complete).
-      final index = indexText == null ? -1 : int.parse(indexText);
+      final index = indexText == null ? -1 : int.tryParse(indexText);
+      if (index == null) {
+        // A segment number too big for an int (`x*99999999999999999999`):
+        // not a real continuation. Leave it as an ordinary parameter rather
+        // than let one bad header fail the whole message.
+        continue;
+      }
       final isEncoded = indexText == null || match.group(3) != null;
       segmentsByName ??= <String, Map<int, _ExtendedSegment>>{};
       (segmentsByName[name] ??= <int, _ExtendedSegment>{})[index] =
@@ -1838,6 +1845,13 @@ class ParameterizedHeader {
         parameters.remove(segment.key);
       }
       if (decoded == null || decoded.isEmpty) {
+        continue;
+      }
+      // A value that did not decode (wrong or missing charset, leaving
+      // U+FFFD) loses to a plain value of the same name, which is then the
+      // better answer. The bridge's mime_params makes the same choice.
+      final plain = parameters[entry.key];
+      if (decoded.contains('�') && plain != null && plain.isNotEmpty) {
         continue;
       }
       parameters[entry.key] = _isAscii(decoded)

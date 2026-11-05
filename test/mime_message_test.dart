@@ -1939,6 +1939,54 @@ Content-Description: S/MIME Cryptographic Signature\r
       expect(part.decodeFileName(), 'Prüfung.pdf');
     });
 
+    test('keeps the plain name when filename* does not decode', () {
+      final part = attachmentWith(
+        'application/pdf',
+        "attachment; filename*=''r%E9sum%E9.pdf; filename=\"resume.pdf\"",
+      );
+      expect(part.decodeFileName(), 'resume.pdf');
+    });
+
+    test('keeps an undecodable filename* when there is no plain name', () {
+      final part = attachmentWith(
+        'application/pdf',
+        "attachment; filename*=''r%E9sum%E9.pdf",
+      );
+      expect(part.decodeFileName(), endsWith('sum�.pdf'));
+    });
+
+    test('prefers filename* over its numbered segments', () {
+      final part = attachmentWith(
+        'application/pdf',
+        "attachment; filename*=UTF-8''a.pdf; filename*0*=UTF-8''b; "
+            'filename*1*=.pdf',
+      );
+      expect(part.decodeFileName(), 'a.pdf');
+    });
+
+    test('ignores a segment number too big for an int', () {
+      final message = MimeMessage.parseFromText([
+        'From: a@example.ch',
+        'Subject: test',
+        'MIME-Version: 1.0',
+        'Content-Type: multipart/mixed; boundary="B"; '
+            'x*99999999999999999999=y',
+        '',
+        '--B',
+        'Content-Type: application/pdf',
+        'Content-Transfer-Encoding: base64',
+        "Content-Disposition: attachment; filename*=UTF-8''$name; "
+            'filename*99999999999999999999*=junk',
+        '',
+        'JVBERi0xLjQK',
+        '--B--',
+        '',
+      ].join('\r\n'));
+
+      expect(message.getHeaderContentType()!.boundary, 'B');
+      expect(message.parts!.single.decodeFileName(), name);
+    });
+
     test('reads name* on Content-Type when there is no disposition', () {
       final part = attachmentWith(
         "application/octet-stream; name*=UTF-8''$name",
