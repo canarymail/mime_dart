@@ -1735,7 +1735,7 @@ class ParameterizedHeader {
       final element = elements[i].trim();
       final splitPos = element.indexOf('=');
       if (splitPos == -1) {
-        parameters[element.toLowerCase()] = '';
+        parameters.putIfAbsent(element.toLowerCase(), () => '');
       } else {
         // Names and values are trimmed: `filename = "a.pdf"` is legal
         // (RFC 2045 allows whitespace around tokens) and must not end up
@@ -1743,7 +1743,9 @@ class ParameterizedHeader {
         final name = element.substring(0, splitPos).trim().toLowerCase();
         final value = element.substring(splitPos + 1).trim();
         final valueWithoutQuotes = removeQuotes(value);
-        parameters[name] = valueWithoutQuotes;
+        // A parameter sent twice keeps its first value, as Python's
+        // email package (and so the bridge) reads it.
+        parameters.putIfAbsent(name, () => valueWithoutQuotes);
       }
     }
     _decodeExtendedParameters();
@@ -1889,13 +1891,20 @@ class ParameterizedHeader {
       }
     }
     final hasCharset = charset != null && charset.isNotEmpty;
-
-    return MailCodec.decodeAsText(
+    final decoded = MailCodec.decodeAsText(
       Uint8List.fromList(octets),
       '8bit',
       hasCharset ? charset : 'utf-8',
     );
+
+    // Percent-encoding can carry bytes a quoted value never could: `%0A`,
+    // `%0D%0A`, `%00`. Re-rendered, a line break in a name starts a forged
+    // header line, and the raw bytes would reach the code that saves the
+    // file. The bridge's mime_params scrubs them the same way.
+    return decoded.replaceAll(_controlCharacters, ' ');
   }
+
+  static final _controlCharacters = RegExp('[\\x00-\\x1F\\x7F]');
 
   static void _addPercentDecoded(String text, List<int> octets) {
     for (var i = 0; i < text.length; i++) {

@@ -1939,6 +1939,43 @@ Content-Description: S/MIME Cryptographic Signature\r
       expect(part.decodeFileName(), 'Prüfung.pdf');
     });
 
+    test('replaces control characters in a decoded name with spaces', () {
+      final part = attachmentWith(
+        'application/pdf',
+        "attachment; filename*=UTF-8''a%0D%0Ab%00c%7F.pdf",
+      );
+      expect(part.decodeFileName(), 'a  b c .pdf');
+    });
+
+    test('a line break in a decoded name forges no header on re-render', () {
+      final part = attachmentWith(
+        'application/pdf',
+        "attachment; filename*=UTF-8''a%0AX-Evil:%201.pdf",
+      );
+      final rendered = part.getHeaderContentDisposition()!.render();
+
+      expect(part.decodeFileName(), 'a X-Evil: 1.pdf');
+      expect(rendered, isNot(contains('\n')));
+      expect(rendered, isNot(contains('\r')));
+    });
+
+    test('plain continuations win over a plain filename', () {
+      final part = attachmentWith(
+        'application/pdf',
+        'attachment; filename="short.pdf"; filename*0="Long "; '
+            'filename*1="name.pdf"',
+      );
+      expect(part.decodeFileName(), 'Long name.pdf');
+    });
+
+    test('the first of two plain filenames wins', () {
+      final part = attachmentWith(
+        'application/pdf',
+        'attachment; filename="one.pdf"; filename="two.pdf"',
+      );
+      expect(part.decodeFileName(), 'one.pdf');
+    });
+
     test('keeps the plain name when filename* does not decode', () {
       final part = attachmentWith(
         'application/pdf',
