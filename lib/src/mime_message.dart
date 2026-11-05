@@ -1,5 +1,6 @@
 // ignore_for_file: avoid_returning_this
 
+import 'dart:convert' show utf8;
 import 'dart:typed_data';
 
 import 'package:collection/collection.dart' show IterableExtension;
@@ -1728,7 +1729,7 @@ class Envelope {
 class ParameterizedHeader {
   /// Creates a new header with the given [rawValue]
   ParameterizedHeader(this.rawValue) {
-    final elements = rawValue.split(';');
+    final elements = _splitParameters(rawValue);
     value = elements[0];
     for (var i = 1; i < elements.length; i++) {
       final element = elements[i].trim();
@@ -1736,13 +1737,170 @@ class ParameterizedHeader {
       if (splitPos == -1) {
         parameters[element.toLowerCase()] = '';
       } else {
-        final name = element.substring(0, splitPos).toLowerCase();
-        final value = element.substring(splitPos + 1);
+        // Names and values are trimmed: `filename = "a.pdf"` is legal
+        // (RFC 2045 allows whitespace around tokens) and must not end up
+        // under the key `filename `.
+        final name = element.substring(0, splitPos).trim().toLowerCase();
+        final value = element.substring(splitPos + 1).trim();
         final valueWithoutQuotes = removeQuotes(value);
         parameters[name] = valueWithoutQuotes;
       }
     }
+    _decodeExtendedParameters();
   }
+
+  /// Splits [raw] on the `;` separating its parameters, leaving a `;`
+  /// inside a quoted value (`filename="a;b.pdf"`) alone.
+  ///
+  /// A header with an unbalanced quote is split on every `;`, as it always
+  /// was, rather than swallowing the rest of the header into one value.
+  static List<String> _splitParameters(String raw) {
+    if (!raw.contains('"')) {
+      return raw.split(';');
+    }
+    final elements = <String>[];
+    final current = StringBuffer();
+    var inQuotes = false;
+    for (var i = 0; i < raw.length; i++) {
+      final char = raw[i];
+      if (inQuotes && char == r'\' && i + 1 < raw.length) {
+        current
+          ..write(char)
+          ..write(raw[++i]);
+        continue;
+      }
+      if (char == '"') {
+        inQuotes = !inQuotes;
+      } else if (char == ';' && !inQuotes) {
+        elements.add(current.toString());
+        current.clear();
+        continue;
+      }
+      current.write(char);
+    }
+    if (inQuotes) {
+      return raw.split(';');
+    }
+    elements.add(current.toString());
+
+    return elements;
+  }
+
+  /// `name*`, `name*0`, `name*0*`: an RFC 2231 extended or continued
+  /// parameter. Group 1 is the name, group 2 the segment index, group 3 the
+  /// `*` marking a percent-encoded continuation segment.
+  static final _extendedParameterName = RegExp(r'^([^*]+)\*(?:(\d+)(\*)?)?$');
+
+  /// Folds RFC 2231 parameters into the plain parameter they stand for:
+  /// `filename*=UTF-8''Pr%C3%BCfung.pdf`, or one split into
+  /// `filename*0*=…; filename*1*=…`, becomes `filename`.
+  ///
+  /// Contact forms, PHP/Java mailers and Outlook send attachment names this
+  /// way. Unfolded, the name sits under `filename*`, which nothing reads, so
+  /// the attachment arrives nameless and gets a made-up one.
+  ///
+  /// The decoded value replaces any plain value of the same name: a sender
+  /// that writes both means the plain one as an ASCII fallback for readers
+  /// without RFC 2231 (RFC 6266 §4.3). A non-ASCII result is stored as an
+  /// RFC 2047 encoded-word, the form a plain parameter would carry it in,
+  /// so readers that decode encoded-words get it back unchanged and a
+  /// re-rendered header stays 7-bit.
+  void _decodeExtendedParameters() {
+    Map<String, Map<int, _ExtendedSegment>>? segmentsByName;
+    for (final key in parameters.keys) {
+      final match = _extendedParameterName.firstMatch(key);
+      if (match == null) {
+        continue;
+      }
+      final name = match.group(1)!;
+      final indexText = match.group(2);
+      // `name*` alone is a single, always-encoded segment. When a sender
+      // also numbers segments, the single form wins (it is complete).
+      final index = indexText == null ? -1 : int.parse(indexText);
+      final isEncoded = indexText == null || match.group(3) != null;
+      segmentsByName ??= <String, Map<int, _ExtendedSegment>>{};
+      (segmentsByName[name] ??= <int, _ExtendedSegment>{})[index] =
+          _ExtendedSegment(key, parameters[key]!, isEncoded: isEncoded);
+    }
+    if (segmentsByName == null) {
+      return;
+    }
+    for (final entry in segmentsByName.entries) {
+      final segmentsByIndex = entry.value;
+      final single = segmentsByIndex[-1];
+      final segments = single != null
+          ? [single]
+          : (segmentsByIndex.keys.toList()..sort())
+              .map((index) => segmentsByIndex[index]!)
+              .toList();
+      final decoded = _decodeExtendedValue(segments);
+      for (final segment in segmentsByIndex.values) {
+        parameters.remove(segment.key);
+      }
+      if (decoded == null || decoded.isEmpty) {
+        continue;
+      }
+      parameters[entry.key] = _isAscii(decoded)
+          ? decoded
+          : MailCodec.base64.encodeHeader(decoded, fromStart: true);
+    }
+  }
+
+  /// Joins [segments] (in order) and decodes them: the first encoded
+  /// segment opens with `charset'language'`, every encoded segment is
+  /// percent-encoded octets, and the octets of all segments are decoded
+  /// together because a multi-byte character may straddle two segments.
+  static String? _decodeExtendedValue(List<_ExtendedSegment> segments) {
+    if (segments.isEmpty) {
+      return null;
+    }
+    String? charset;
+    final octets = <int>[];
+    for (var i = 0; i < segments.length; i++) {
+      final segment = segments[i];
+      var text = segment.value;
+      if (segment.isEncoded && i == 0) {
+        final firstQuote = text.indexOf("'");
+        final secondQuote =
+            firstQuote == -1 ? -1 : text.indexOf("'", firstQuote + 1);
+        if (secondQuote != -1) {
+          charset = text.substring(0, firstQuote).trim();
+          text = text.substring(secondQuote + 1);
+        }
+      }
+      if (segment.isEncoded) {
+        _addPercentDecoded(text, octets);
+      } else {
+        octets.addAll(utf8.encode(text));
+      }
+    }
+    final hasCharset = charset != null && charset.isNotEmpty;
+
+    return MailCodec.decodeAsText(
+      Uint8List.fromList(octets),
+      '8bit',
+      hasCharset ? charset : 'utf-8',
+    );
+  }
+
+  static void _addPercentDecoded(String text, List<int> octets) {
+    for (var i = 0; i < text.length; i++) {
+      final char = text[i];
+      if (char == '%' && i + 2 < text.length) {
+        final byte = int.tryParse(text.substring(i + 1, i + 3), radix: 16);
+        if (byte != null) {
+          octets.add(byte);
+          i += 2;
+          continue;
+        }
+      }
+      // A character that should have been percent-encoded but was sent
+      // raw: keep it rather than dropping it.
+      octets.addAll(utf8.encode(char));
+    }
+  }
+
+  static bool _isAscii(String text) => text.codeUnits.every((c) => c < 0x80);
 
   /// The raw value of the header
   String rawValue;
@@ -1799,19 +1957,46 @@ class ParameterizedHeader {
   }
 
   /// Renders all remaining fields
+  ///
+  /// A parsed value is stored without its quotes, so one that is not an
+  /// RFC 2045 token (`name=My file.pdf`, `type=text/html`, an encoded-word)
+  /// is quoted again here. A value set already quoted is written as is.
   void renderRemainingFields(StringBuffer buffer, {List<String>? exclude}) {
     for (final key in parameters.keys) {
       if (exclude == null || !exclude.contains(key.toLowerCase())) {
-        renderField(key, parameters[key], buffer, quote: false);
+        final value = parameters[key];
+        if (value == null || value.isEmpty || _isQuotedOrToken(value)) {
+          renderField(key, value, buffer);
+        } else {
+          // Escape a bare `"`; a parsed value keeps any `\"` it arrived with.
+          final escaped = value.replaceAll(RegExp(r'(?<!\\)"'), r'\"');
+          renderField(key, escaped, buffer, quote: true);
+        }
       }
     }
   }
+
+  /// RFC 2045 token: printable ASCII except space and `()<>@,;:\"/[]?=`.
+  static final _token = RegExp(r"^[!#$%&'*+\-.0-9A-Z^_`a-z{|}~]+$");
+
+  static bool _isQuotedOrToken(String value) =>
+      (value.length > 1 && value.startsWith('"') && value.endsWith('"')) ||
+      _token.hasMatch(value);
 
   /// Adds a new or replaces the existing parameter [name]
   /// with the value [quotedValue].
   void setParameter(String name, String quotedValue) {
     parameters[name] = quotedValue;
   }
+}
+
+/// One segment of an RFC 2231 parameter, as sent under [key].
+class _ExtendedSegment {
+  const _ExtendedSegment(this.key, this.value, {required this.isEncoded});
+
+  final String key;
+  final String value;
+  final bool isEncoded;
 }
 
 /// Eases reading content-type header values
