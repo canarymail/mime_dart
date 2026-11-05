@@ -7,6 +7,7 @@ import 'package:mime_dart/src/codecs/date_codec.dart';
 import 'package:mime_dart/src/codecs/mail_codec.dart';
 import 'package:mime_dart/src/mail_address.dart';
 import 'package:mime_dart/src/media_type.dart';
+import 'package:mime_dart/src/message_builder.dart';
 import 'package:mime_dart/src/mime_message.dart';
 import 'package:test/test.dart';
 // cSpell:disable
@@ -1848,6 +1849,219 @@ Content-Description: S/MIME Cryptographic Signature\r
         inputMessage.decodeTextHtmlPart(),
         '<html><body><p>Hello!!</p><img src="x" width="1"/></body></html>',
       );
+    });
+  });
+
+  group('RFC 2231 parameters', () {
+    const name = 'V2305_SK-GT-175_V4-Angebotsanfrage.pdf';
+
+    MimePart attachmentWith(String contentType, String disposition) {
+      final message = MimeMessage.parseFromText([
+        'From: Form <form@example.ch>',
+        'To: info@example.ch',
+        'Subject: test',
+        'MIME-Version: 1.0',
+        'Content-Type: multipart/mixed; boundary="B"',
+        '',
+        '--B',
+        'Content-Type: text/plain; charset=utf-8',
+        '',
+        'hello',
+        '--B',
+        'Content-Type: $contentType',
+        'Content-Transfer-Encoding: base64',
+        if (disposition.isNotEmpty) 'Content-Disposition: $disposition',
+        '',
+        'JVBERi0xLjQK',
+        '--B--',
+        '',
+      ].join('\r\n'));
+
+      return message.parts!.last;
+    }
+
+    test('reads an extended filename*', () {
+      final part = attachmentWith(
+        'application/octet-stream',
+        "attachment; filename*=UTF-8''$name",
+      );
+      expect(part.decodeFileName(), name);
+    });
+
+    test('decodes percent-encoded UTF-8', () {
+      final part = attachmentWith(
+        'application/pdf',
+        "attachment; filename*=utf-8''Pr%C3%BCfung%20Bericht.pdf",
+      );
+      expect(part.decodeFileName(), 'Prüfung Bericht.pdf');
+    });
+
+    test('decodes the declared charset', () {
+      final part = attachmentWith(
+        'application/pdf',
+        "attachment; filename*=iso-8859-1'de'Pr%FCfung.pdf",
+      );
+      expect(part.decodeFileName(), 'Prüfung.pdf');
+    });
+
+    test('joins encoded continuations split inside a character', () {
+      final part = attachmentWith(
+        'application/pdf',
+        "attachment; filename*0*=UTF-8''Pr%C3; filename*1*=%BCfung.pdf",
+      );
+      expect(part.decodeFileName(), 'Prüfung.pdf');
+    });
+
+    test('joins plain continuations in index order', () {
+      final part = attachmentWith(
+        'application/pdf',
+        'attachment; filename*1="-Angebotsanfrage.pdf"; '
+            'filename*0="V2305_SK-GT-175_V4"',
+      );
+      expect(part.decodeFileName(), name);
+    });
+
+    test('folded header with continuations on separate lines', () {
+      final part = attachmentWith(
+        'application/pdf',
+        "attachment;\r\n filename*0*=UTF-8''V2305_SK-GT-175_V4;\r\n"
+            ' filename*1*=-Angebotsanfrage.pdf',
+      );
+      expect(part.decodeFileName(), name);
+    });
+
+    test('prefers filename* over a plain ASCII fallback', () {
+      final part = attachmentWith(
+        'application/pdf',
+        'attachment; filename="Prufung.pdf"; '
+            "filename*=UTF-8''Pr%C3%BCfung.pdf",
+      );
+      expect(part.decodeFileName(), 'Prüfung.pdf');
+    });
+
+    test('reads name* on Content-Type when there is no disposition', () {
+      final part = attachmentWith(
+        "application/octet-stream; name*=UTF-8''$name",
+        '',
+      );
+      expect(part.decodeFileName(), name);
+    });
+
+    test('tolerates whitespace around =', () {
+      final part = attachmentWith(
+        'application/octet-stream',
+        'attachment; filename = "$name"',
+      );
+      expect(part.decodeFileName(), name);
+    });
+
+    test('keeps a ; inside a quoted filename', () {
+      final part = attachmentWith(
+        'application/pdf',
+        'attachment; filename="a;b.pdf"; size=10',
+      );
+      expect(part.decodeFileName(), 'a;b.pdf');
+      expect(part.getHeaderContentDisposition()!.size, 10);
+    });
+
+    test('drops the extended keys so a render writes the name once', () {
+      final header = ContentDispositionHeader(
+        "attachment; filename*=UTF-8''Pr%C3%BCfung.pdf",
+      );
+      expect(header.filename, 'Prüfung.pdf');
+      expect(header.parameters.keys, isNot(contains('filename*')));
+      final rendered = header.render();
+      expect(rendered, isNot(contains('filename*')));
+      expect(ContentDispositionHeader(rendered).filename, 'Prüfung.pdf');
+    });
+
+    test('a renamed filename is what decodeFileName returns', () {
+      final part = attachmentWith(
+        'application/pdf',
+        "attachment; filename*=UTF-8''a/b.pdf",
+      );
+      part.getHeaderContentDisposition()!.filename = 'a_b.pdf';
+      expect(part.decodeFileName(), 'a_b.pdf');
+    });
+
+    test('a forwarded attachment keeps its RFC 2231 name', () {
+      final original = MimeMessage.parseFromText([
+        'From: Form <form@example.ch>',
+        'To: info@example.ch',
+        'Subject: test',
+        'MIME-Version: 1.0',
+        'Content-Type: multipart/mixed; boundary="B"',
+        '',
+        '--B',
+        'Content-Type: text/plain; charset=utf-8',
+        '',
+        'hello',
+        '--B',
+        "Content-Type: application/octet-stream; name*=UTF-8''My%20Pr%C3%BCfung.pdf",
+        'Content-Transfer-Encoding: base64',
+        "Content-Disposition: attachment; filename*=UTF-8''My%20Pr%C3%BCfung.pdf",
+        '',
+        'JVBERi0xLjQK',
+        '--B--',
+        '',
+      ].join('\r\n'));
+
+      final forwarded = MessageBuilder.prepareForwardMessage(
+        original,
+        from: MailAddress('Me', 'me@example.com'),
+      ).buildMimeMessage();
+      final reparsed = MimeMessage.parseFromText(forwarded.renderMessage());
+      final attachment = reparsed.allPartsFlat.firstWhere(
+        (part) => part.mediaType.text == 'application/octet-stream',
+      );
+
+      expect(attachment.decodeFileName(), 'My Prüfung.pdf');
+      expect(
+        MailCodec.decodeHeader(
+          attachment.getHeaderContentType()!.parameters['name'],
+        ),
+        'My Prüfung.pdf',
+      );
+    });
+
+    test('the EML cache rebuild keeps the name (addBinary path)', () {
+      final part = attachmentWith(
+        'application/octet-stream',
+        "attachment; filename*=UTF-8''$name",
+      );
+      final builder = MessageBuilder()
+        ..addBinary(
+          Uint8List(0),
+          part.mediaType,
+          disposition: part.getHeaderContentDisposition(),
+          filename: part.decodeFileName(),
+        );
+      final rebuilt = MimeMessage.parseFromText(
+        builder.buildMimeMessage().renderMessage(),
+      );
+      final attachment = rebuilt.allPartsFlat.firstWhere(
+        (p) => p.mediaType.text == 'application/octet-stream',
+      );
+      expect(attachment.decodeFileName(), name);
+    });
+
+    test('renders non-token parameter values quoted', () {
+      final type = ContentTypeHeader(
+        'multipart/related; type="text/html"; boundary="b"',
+      );
+      expect(type.render(), contains('type="text/html"'));
+      final disposition = ContentDispositionHeader(
+        'attachment; filename="a.pdf"; size=12',
+      );
+      expect(disposition.render(), contains('size=12'));
+    });
+
+    test('plain parameters are unchanged', () {
+      final type = ContentTypeHeader(
+        'multipart/mixed; boundary="----=_Part_1"; charset=UTF-8',
+      );
+      expect(type.boundary, '----=_Part_1');
+      expect(type.charset, 'utf-8');
     });
   });
 }
