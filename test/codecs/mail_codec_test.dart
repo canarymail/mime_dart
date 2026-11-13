@@ -83,10 +83,14 @@ void main() {
           'B5=EF=BB=BF?= =?utf-8?Q?=EF=BB=BF=EF=BB=BF=E2=80=85=E2=80=8B=E2=80='
           '8B=EF=BB=BF3=EF?= =?utf-8?Q?=BB=BF=EF=BB=BF=EF=BB=BF6=EF=BB=BF=EF=B'
           'B=BF=EF=BB=BF5?=';
+      // Every =EF=BB=BF is one U+FEFF. Decoding escaped runs one by one lost
+      // the U+FEFF that started each run (Dart's UTF-8 decoder drops a
+      // leading BOM); the whole word is now decoded at once.
       expect(
         MailCodec.decodeHeader(input),
-        'О﻿﻿﻿f﻿﻿f﻿﻿і﻿﻿﻿с﻿﻿﻿е﻿'
-        '﻿﻿ ​​﻿3﻿﻿6﻿﻿5',
+        'О\uFEFF\uFEFF\uFEFFf\uFEFF\uFEFF\uFEFFf\uFEFF\uFEFF\uFEFFі'
+        '\uFEFF\uFEFF\uFEFFс\uFEFF\uFEFF\uFEFFе\uFEFF\uFEFF\uFEFF'
+        '\u2005\u200B\u200B\uFEFF3\uFEFF\uFEFF\uFEFF6\uFEFF\uFEFF\uFEFF5',
       );
       input =
           '=?UTF-8?B?RXhrbHVzaXZlIEVpbmxhZHVuZzogSW5mbHVlbmNlci1WZXJidW5kIA='

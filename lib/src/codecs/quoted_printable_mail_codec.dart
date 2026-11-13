@@ -126,9 +126,107 @@ class QuotedPrintableMailCodec extends MailCodec {
     required bool isHeader,
     required bool propagateCodecErrors,
   }) {
-    final buffer = StringBuffer();
     // remove all soft-breaks:
     final cleaned = part.replaceAll('=\r\n', '');
+    // Valid quoted-printable escapes every byte >= 0x80, so undo the escapes
+    // for the whole part and decode the bytes with the charset once
+    // (RFC 2045 6.7). Decoding each `=XX` run on its own, as
+    // [_decodeEscapedRuns] does, breaks any charset whose characters mix
+    // escaped and literal bytes: ISO-2022-JP escapes only ESC (`=1B`), and a
+    // Shift_JIS, GBK or Big5 trail byte can be a literal ASCII character.
+    final bytes = _unescape(cleaned, isHeader: isHeader);
+    if (bytes != null) {
+      try {
+        return codec.decode(bytes);
+      } on FormatException {
+        if (propagateCodecErrors) {
+          // Not valid in the charset. MailCodec retries with its lenient
+          // codec, which decodes the whole part with U+FFFD for the bad
+          // bytes. The per-run decoding below would instead "succeed" with
+          // the escapes left in (an ISO-2022-JP part with one unmapped
+          // character came back as `ESC $B...`), reported as supported.
+          rethrow;
+        }
+        // A direct best-effort call with a strict codec: decode as before.
+      }
+    }
+    // Not valid quoted-printable (raw 8-bit bytes or text that is already
+    // Unicode): decode exactly as before. Deliberately no attempt to do
+    // better here: whether raw bytes are UTF-8 or Latin-1 can only be
+    // guessed, and every guess decoded some text worse than before.
+    return _decodeEscapedRuns(
+      cleaned,
+      codec,
+      isHeader: isHeader,
+      propagateCodecErrors: propagateCodecErrors,
+    );
+  }
+
+  /// The value of the hex digit [codeUnit], or -1 when it is none.
+  ///
+  /// Checked by hand: `int.tryParse` accepts a sign and surrounding
+  /// whitespace, which would turn a sloppy `= 1` into the control byte 0x01.
+  static int _hexValue(int codeUnit) {
+    if (codeUnit >= 0x30 && codeUnit <= 0x39) {
+      return codeUnit - 0x30;
+    }
+    final lower = codeUnit | 0x20;
+    if (lower >= 0x61 && lower <= 0x66) {
+      return lower - 0x61 + 10;
+    }
+    return -1;
+  }
+
+  /// Returns the bytes [text] encodes, or null when [text] is not valid
+  /// quoted-printable because it holds a character >= 0x80 (a raw 8-bit byte
+  /// or a character already decoded to Unicode).
+  static Uint8List? _unescape(String text, {required bool isHeader}) {
+    for (var i = 0; i < text.length; i++) {
+      if (text.codeUnitAt(i) >= 0x80) {
+        return null;
+      }
+    }
+    // Unescaping only shrinks the text, so its length bounds the bytes.
+    final bytes = Uint8List(text.length);
+    var length = 0;
+    for (var i = 0; i < text.length; i++) {
+      final codeUnit = text.codeUnitAt(i);
+      if (codeUnit == AsciiRunes.runeEquals) {
+        final high =
+            i + 1 < text.length ? _hexValue(text.codeUnitAt(i + 1)) : -1;
+        final low =
+            i + 2 < text.length ? _hexValue(text.codeUnitAt(i + 2)) : -1;
+        if (high >= 0 && low >= 0) {
+          bytes[length++] = high << 4 | low;
+        } else {
+          // Not an escape. As [_decodeEscapedRuns] does, drop the `=` and
+          // copy the next two characters (or fewer at the end) unchanged:
+          // in `a == b` the second `=` stays, and in a header a `_` after
+          // the `=` stays an underscore.
+          for (var j = i + 1; j < i + 3 && j < text.length; j++) {
+            bytes[length++] = text.codeUnitAt(j);
+          }
+        }
+        i += 2;
+      } else if (isHeader && codeUnit == AsciiRunes.runeUnderline) {
+        bytes[length++] = AsciiRunes.runeSpace;
+      } else {
+        bytes[length++] = codeUnit;
+      }
+    }
+    return Uint8List.sublistView(bytes, 0, length);
+  }
+
+  /// The decoding before whole-part decoding, unchanged: each run of `=XX`
+  /// escapes is decoded with [codec] on its own and every other character is
+  /// kept as is.
+  static String _decodeEscapedRuns(
+    String cleaned,
+    Encoding codec, {
+    required bool isHeader,
+    required bool propagateCodecErrors,
+  }) {
+    final buffer = StringBuffer();
     for (var i = 0; i < cleaned.length; i++) {
       final char = cleaned[i];
       if (char == '=') {
