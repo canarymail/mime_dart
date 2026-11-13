@@ -219,13 +219,18 @@ abstract class MailCodec {
       case 'windows-1256':
         return Windows1256Codec(allowInvalid: allowInvalid);
       case 'cp850':
-        return CodePage850Codec(allowInvalid: allowInvalid);
+        // Not CodePage850Codec: it decodes control characters to the glyphs
+        // DOS drew for them, turning a line break into ♪◙.
+        return CodePage850TextCodec(allowInvalid: allowInvalid);
       case 'koi8-r':
         return Koi8rCodec(allowInvalid: allowInvalid);
       case 'koi8-u':
         return Koi8uCodec(allowInvalid: allowInvalid);
       case 'gbk':
-        return GbkCodec(allowInvalid: allowInvalid);
+        // WHATWG decodes gbk (and gb2312) with the gb18030 decoder: it reads
+        // 0x80 as € and keeps an ASCII byte that follows an invalid lead
+        // byte, which GbkCodec swallowed.
+        return Gb18030Codec(allowInvalid: allowInvalid);
       case 'gb18030':
         return Gb18030Codec(allowInvalid: allowInvalid);
       case 'big5':
@@ -237,7 +242,12 @@ abstract class MailCodec {
       case 'euc-kr':
         return EucKrCodec(allowInvalid: allowInvalid);
       case 'iso-2022-jp':
-        return Iso2022JpCodec(allowInvalid: allowInvalid);
+        // Mail routinely closes one JIS run and opens the next back to back;
+        // the WHATWG error for that would put U+FFFD between the two runs.
+        return Iso2022JpCodec(
+          allowInvalid: allowInvalid,
+          allowConsecutiveEscapes: true,
+        );
     }
     final pythonName = generatedSingleByteCodecNames[canonicalName];
     return pythonName == null

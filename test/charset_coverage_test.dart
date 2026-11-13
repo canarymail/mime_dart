@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:mime_dart/mime_dart.dart';
@@ -102,6 +103,182 @@ void main() {
       ]),
       '日本語',
     );
+  });
+
+  group('quoted-printable', () {
+    String decodeQp(String charset, String body) => MimeMessage.parseFromData(
+          Uint8List.fromList([
+            ...'Subject: qp test\r\n'
+                    'MIME-Version: 1.0\r\n'
+                    'Content-Type: text/html; charset="$charset"\r\n'
+                    'Content-Transfer-Encoding: quoted-printable\r\n\r\n'
+                .codeUnits,
+            ...body.codeUnits,
+          ]),
+        ).decodeTextHtmlPart()!.trim();
+
+    // Each case runs with and without a diagnostics handler: without one,
+    // MailCodec decodes with the lenient codec only.
+    void bothModes(String name, void Function() body) {
+      for (final withHandler in [true, false]) {
+        test('$name ${withHandler ? 'with' : 'without'} a diagnostics handler',
+            () {
+          if (!withHandler) {
+            MailCodec.charsetDiagnosticHandler = null;
+          }
+          body();
+        });
+      }
+    }
+
+    group('valid input decodes the whole part with its charset', () {
+      bothModes('ISO-2022-JP with only ESC escaped', () {
+        expect(
+          decodeQp('iso-2022-jp', r'<p>=1B$BF|K\=1B(B=1B$B8l=1B(B</p>'),
+          '<p>日本語</p>',
+        );
+      });
+
+      bothModes('ISO-2022-JP run split by a soft line break', () {
+        expect(
+          decodeQp('iso-2022-jp', '=1B\$BF|=\r\nK\\8l=1B(B'),
+          '日本語',
+        );
+      });
+
+      // Senders escape only bytes >= 0x80, so a trail byte in the ASCII
+      // range stays literal and splits the character across an escape run.
+      for (final (charset, body, expected) in [
+        ('shift_jis', r'=95\=8E=A6', '表示'),
+        ('gbk', '=81@', '丂'),
+        ('gb18030', '=81@', '丂'),
+        ('big5', r'=A5\=AF=E0', '功能'),
+      ]) {
+        bothModes('$charset trail byte left literal', () {
+          expect(decodeQp(charset, body), expected);
+        });
+      }
+
+      // Strict decoding fails on the unmapped `"/`; the lenient retry must
+      // decode the whole part rather than fall back to per-run decoding,
+      // which left the escapes in and reported it as supported.
+      bothModes('ISO-2022-JP with ESC left literal and one unmapped pair', () {
+        expect(
+          decodeQp('iso-2022-jp', '\x1B\$BF|K\\8l"/\x1B(B'),
+          '日本語�',
+        );
+      });
+
+      bothModes('the same part ending in a bare =', () {
+        expect(
+          decodeQp('iso-2022-jp', '\x1B\$BF|K\\8l"/\x1B(B ='),
+          '日本語�',
+        );
+      });
+
+      bothModes('UTF-8 escapes and literal ASCII', () {
+        expect(decodeQp('utf-8', 'caf=C3=A9 =3D ok'), 'café = ok');
+      });
+
+      bothModes('an unparsable escape keeps the rest', () {
+        expect(decodeQp('utf-8', 'caf=C3=A9 =C3=ZZ ok'), 'café �ZZ ok');
+      });
+
+      bothModes('an = before a sign or space is not an escape', () {
+        // int.tryParse would read ' 1' as 1, '-1' as -1 and ' A' as 10.
+        expect(decodeQp('utf-8', 'a= 1b=-1c x=C3= Ay'), 'a 1b-1c x� Ay');
+      });
+    });
+
+    // Whole-part decoding sends the literal ASCII of a part through the
+    // charset, so a charset that misreads ASCII breaks valid QP. Each of
+    // these decoded right before whole-part decoding.
+    group('literal ASCII goes through the charset intact', () {
+      bothModes('cp850 keeps line breaks and tabs', () {
+        expect(
+          decodeQp('cp850', 'Gr=81=E1e\r\nZeile 2\tEnde'),
+          'Grüße\r\nZeile 2\tEnde',
+        );
+        expect(decodeQp('ibm850', '<a\r\nhref=3D"x">'), '<a\r\nhref="x">');
+      });
+
+      bothModes('a literal NUL in a single-byte charset', () {
+        for (final charset in ['iso-8859-1', 'windows-1250', 'koi8-r']) {
+          expect(
+            decodeQp(charset, '<p>caf=E9\u0000</p>'),
+            charset == 'koi8-r'
+                ? '<p>caf\u0418\u0000</p>'
+                : '<p>café\u0000</p>',
+            reason: charset,
+          );
+        }
+      });
+
+      bothModes('gbk keeps the ASCII after a bad byte, and 0x80 is €', () {
+        expect(decodeQp('gb2312', 'Price: =80100 only'), 'Price: €100 only');
+        expect(decodeQp('gbk', 'x=FF<b>'), 'x�<b>');
+      });
+    });
+
+    // A bad escape drops the `=` and keeps the two characters after it, as
+    // before (which threw instead on a trailing `=1`).
+    group('an = that is not an escape', () {
+      for (final (body, expected) in [
+        ('if (a == b && c === d)', 'if (a = b && c == d)'),
+        ('?t=YWJjZA==&u=1', '?tYWJjZA=&u1'),
+        ('x=4=41y', 'x4=41y'),
+      ]) {
+        bothModes(body, () {
+          expect(decodeQp('utf-8', body), expected);
+        });
+      }
+
+      test('a _ after it in a header stays an underscore', () {
+        expect(MailCodec.decodeHeader('=?utf-8?Q?a=_b?='), 'a_b');
+      });
+    });
+
+    // Raw 8-bit bytes are not valid quoted-printable, and whether they are
+    // UTF-8 or Latin-1 can only be guessed, so these decode exactly as they
+    // did before whole-part decoding. The expected values are that output.
+    group('raw 8-bit or Unicode text decodes as before', () {
+      for (final (body, expected) in [
+        ('café =C3=A9', 'café é'),
+        ('café =C3=28', 'café �('),
+        (
+          'Noël fermé » café',
+          'Noël fermé » café',
+        ),
+        (
+          String.fromCharCodes(utf8.encode('日本 a=3Db')),
+          '${String.fromCharCodes(utf8.encode('日本'))} a=b',
+        ),
+      ]) {
+        bothModes('${jsonEncode(body)} in a UTF-8 part', () {
+          expect(decodeQp('utf-8', body), expected);
+        });
+      }
+
+      test('lenient direct decodeText', () {
+        expect(
+          MailCodec.quotedPrintable
+              .decodeText('café =C3=A9', MailCodec.encodingUtf8),
+          'café é',
+        );
+      });
+
+      test('text that is already Unicode', () {
+        for (final (text, expected) in [
+          ('日本 caf=C3=A9', '日本 café'),
+          ('Grüße Ã©té', 'Grüße Ã©té'),
+        ]) {
+          expect(
+            MailCodec.quotedPrintable.decodeText(text, MailCodec.encodingUtf8),
+            expected,
+          );
+        }
+      });
+    });
   });
 
   test('GB18030 four-byte sequences decode outside GBK', () {
