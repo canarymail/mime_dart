@@ -71,6 +71,50 @@ class Base64MailCodec extends MailCodec {
         fromStart: fromStart,
       );
 
+  /// [text] without the characters `RegExp(r'\s')` matches, as
+  /// `text.replaceAll(RegExp(r'\s'), '')` returns it: running that regular
+  /// expression over a body of several megabytes took a large part of the
+  /// time to decode it. Text without whitespace is returned as it is.
+  static String removeWhitespace(String text) {
+    StringBuffer? buffer;
+    var runStart = 0;
+    for (var i = 0; i < text.length; i++) {
+      if (_isRegExpWhitespace(text.codeUnitAt(i))) {
+        buffer ??= StringBuffer();
+        if (runStart < i) {
+          buffer.write(text.substring(runStart, i));
+        }
+        runStart = i + 1;
+      }
+    }
+    if (buffer == null) {
+      return text;
+    }
+    if (runStart < text.length) {
+      buffer.write(text.substring(runStart));
+    }
+    return buffer.toString();
+  }
+
+  /// The code units `\s` matches in a Dart (ECMAScript) regular expression.
+  static bool _isRegExpWhitespace(int unit) {
+    if (unit <= 0x20) {
+      return unit == 0x20 || (unit >= 0x09 && unit <= 0x0D);
+    }
+    if (unit < 0xA0) {
+      return false;
+    }
+    return unit == 0xA0 ||
+        unit == 0x1680 ||
+        (unit >= 0x2000 && unit <= 0x200A) ||
+        unit == 0x2028 ||
+        unit == 0x2029 ||
+        unit == 0x202F ||
+        unit == 0x205F ||
+        unit == 0x3000 ||
+        unit == 0xFEFF;
+  }
+
   @override
   Uint8List decodeData(final String part) {
     // Remove all whitespace characters per RFC 2045:
@@ -78,7 +122,7 @@ class Base64MailCodec extends MailCodec {
     // base64-encoded data."
     // This includes spaces (ASCII 32), tabs (ASCII 9), newlines (ASCII 10),
     // and carriage returns (ASCII 13).
-    var cleaned = part.replaceAll(RegExp(r'\s'), '');
+    var cleaned = removeWhitespace(part);
     var numberOfRequiredPadding =
         cleaned.length % 4 == 0 ? 0 : 4 - cleaned.length % 4;
     if (numberOfRequiredPadding > 0 && cleaned.endsWith('=')) {
